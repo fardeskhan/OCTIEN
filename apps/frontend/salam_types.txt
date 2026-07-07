@@ -1,0 +1,138 @@
+type Cooler = {
+  assetId: string
+  model: string
+  store: string
+  installDate: string
+  lastService: string
+  status: "Active" | "Maintenance Due" | "Out of Service" | "Missing"
+}
+
+type MaintenanceJob = {
+  ticketId: string
+  assetId: string
+  storeName: string
+  issue: string
+  status: "Open" | "In Progress" | "Resolved"
+  reportedOn: string
+}
+
+type Placement = {
+  id: string
+  storeName: string
+  district: string
+  assetType: string
+  placedOn: string
+  performanceMultiplier: number
+}
+
+type POSMaterial = {
+  id: string
+  item: string
+  category: string
+  inventory: number
+  reorderPoint: number
+  status: "In Stock" | "Low Stock" | "Out of Stock"
+}
+
+type CoverageData = {
+  id: string
+  district: string
+  totalOutlets: number
+  coveredOutlets: number
+  numericDistribution: number
+  weightedDistribution: number
+}
+
+type Distributor = {
+  id: string
+  name: string
+  territory: string
+  tier: "Platinum" | "Gold" | "Silver"
+  status: "Active" | "Inactive"
+  score: number
+  salesGrowth: number
+  coverage: number
+  outstandingAR: number
+  orderFrequency: string
+}
+
+type TradeScheme = {
+  id: string
+  name: string
+  type: string
+  status: "Active" | "Draft" | "Completed"
+  budget: number
+  utilization: number
+}
+
+type Territory = {
+  id: string
+  name: string
+  region: string
+  distributors: number
+  coverage: number
+  status: "Healthy" | "At Risk" | "Critical"
+}
+
+type Contractor = {
+  id: string
+  name: string
+  capacity: string
+  utilization: number
+  region: string
+  contractValidUntil: string
+}
+
+type Partner = {
+  id: string
+  name: string
+  lines: number
+  certifications: string[]
+  status: "Active" | "Inactive"
+}
+
+type Supplier = {
+  id: string
+  name: string
+  materialType: string
+  qualityScore: number
+  activeOrders: number
+  status: "Active" | "Probation" | "Inactive"
+}
+
+type RetailBranding = {
+  id: string
+  storeName: string
+  brandingType: string
+  installDate: string
+  condition: "Excellent" | "Good" | "Needs Replacement"
+  cost: number
+}
+
+type Campaign = {
+  id: string
+  name: string
+  budget: number
+  spend: number
+  reach: string
+  roi: number
+  status: "Active" | "Planned" | "Completed"
+}
+
+type Influencer = {
+  id: string
+  name: string
+  platform: string
+  followers: string
+  activeCampaigns: number
+  engagementRate: number
+}
+
+type SamplingEvent = {
+  id: string
+  eventName: string
+  location: string
+  unitsDistributed: number
+  conversionRate: number
+  date: string
+}

@@ -1,0 +1,9 @@
+layout:
+  type: WorkspaceShell
+  
+tabs:
+  - id: summary
+    default: true
+  - id: timeline
+  - id: audit
+  - id: documents

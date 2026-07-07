@@ -1,0 +1,8 @@
+export enum InventoryTransactionType {
+  RECEIPT = 'RECEIPT',
+  DISPATCH = 'DISPATCH',
+  TRANSFER = 'TRANSFER',
+  ADJUSTMENT = 'ADJUSTMENT',
+  RETURN_IN = 'RETURN_IN',
+  RETURN_OUT = 'RETURN_OUT'
+}

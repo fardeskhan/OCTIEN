@@ -1,0 +1,55 @@
+identity:
+  id: sales
+  displayName: Sales
+  description: Core commercial capability for COSMY.
+
+version: 1.0.0
+dependencies:
+  - inventory
+  - crm
+  - finance
+
+contracts:
+  commands:
+    - DraftOrder
+    - ConfirmOrder
+    - DispatchShipment
+    - IssueInvoice
+  queries:
+    - GetOrderDetails
+    - GetDashboardMetrics
+  publishes:
+    - Sales.OrderConfirmed
+    - Sales.InvoiceGenerationRequested
+  subscribes:
+    - CRM.CustomerCreated
+
+permissions:
+  - Sales.Read
+  - Sales.Manage
+
+branding:
+  supportsMultiProfile: true
+
+ai:
+  explainable: true
+  dry_run: true
+  rollback: true
+  simulation: true
+  approval_workflow: true
+  streaming: false
+  tool_calling: true
+  offline_execution: false
+  human_review: true
+
+operations:
+  health:
+    live: /api/v1/sales/health/live
+    ready: /api/v1/sales/health/ready
+  metrics: []
+  featureFlags: []
+
+certification:
+  status: Engineering Ready
+  gatesPassed: 12
+  score: 40

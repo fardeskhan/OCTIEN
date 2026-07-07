@@ -1,0 +1,25 @@
+
+# COSMY Business Operating System (BOS)
+# Master Deployment Source of Truth
+
+versions:
+  platform: 1.0.0
+  contracts: 1.0.0
+  sharedKernel: 1.0.0
+  runtime: 1.0.0
+  api: v1
+  events: 1.0
+
+compatibilityMatrix:
+  Platform Runtime 1.0: Contracts 1.x
+  Shared Kernel 1.0: Runtime 1.x
+  Sales 1.0: Contracts 1.0
+  Inventory 1.0: Contracts 1.0
+  Finance 1.0: Contracts 1.0
+
+capabilities:
+  inventory: 1.0.0
+  finance: 1.0.0
+  crm: 0.4.0
+  business_management: 1.0.0
+  sales: 0.2.0

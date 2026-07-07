@@ -1,0 +1,114 @@
+// ==========================================
+// CAP-LOGISTICS V1
+// ==========================================
+
+enum DeliveryRunStatus {
+  SCHEDULED
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+}
+
+enum EWayBillStatus {
+  DRAFT
+  GENERATED
+  CANCELLED
+  EXPIRED
+}
+
+model Transporter {
+  id          String    @id @default(cuid())
+  businessId  String
+  code        String
+  name        String
+  gstin       String?   // Tax ID
+  contactName String?
+  phone       String?
+  
+  vehicles    Vehicle[]
+  runs        DeliveryRun[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  business    Business  @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@map("transporters")
+}
+
+model Vehicle {
+  id            String      @id @default(cuid())
+  businessId    String
+  transporterId String
+  registration  String      // e.g. MH-01-AB-1234
+  type          String?     // e.g. "Heavy Truck", "Van"
+  capacityKg    Decimal?
+  
+  transporter   Transporter @relation(fields: [transporterId], references: [id])
+  runs          DeliveryRun[]
+  business      Business    @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, registration])
+  @@index([transporterId])
+  @@index([businessId])
+  @@map("vehicles")
+}
+
+model DeliveryRun {
+  id            String      @id @default(cuid())
+  businessId    String
+  code          String
+  transporterId String
+  vehicleId     String
+  driverName    String?
+  driverPhone   String?
+  status        DeliveryRunStatus @default(SCHEDULED)
+  dispatchDate  DateTime?
+  
+  transporter   Transporter @relation(fields: [transporterId], references: [id])
+  vehicle       Vehicle     @relation(fields: [vehicleId], references: [id])
+  business      Business    @relation(fields: [businessId], references: [id])
+  
+  shipments     Shipment[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@map("delivery_runs")
+}
+
+model EWayBill {
+  id            String    @id @default(cuid())
+  businessId    String
+  ewbNumber     String    @unique
+  invoiceId     String
+  shipmentId    String
+  
+  status        EWayBillStatus @default(DRAFT)
+  
+  validFrom     DateTime?
+  validUntil    DateTime?
+  generatedBy   String?
+  
+  vehicleNumber   String?
+  transporterName String?
+  
+  cancelledAt     DateTime?
+  cancelReason    String?
+  remarks         String?
+  
+  vehicleId     String?
+  transporterId String?
+
+  business      Business  @relation(fields: [businessId], references: [id])
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([businessId])
+  @@map("eway_bills")
+}

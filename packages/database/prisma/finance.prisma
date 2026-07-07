@@ -1,0 +1,176 @@
+// ==========================================
+// CAP-FINANCE LITE V1
+// ==========================================
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum BillStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum CashTransactionType {
+  CASH_IN
+  CASH_OUT
+}
+
+enum FinanceSourceType {
+  SHIPMENT
+  GOODS_RECEIPT
+  MANUAL
+}
+
+model CustomerInvoice {
+  id              String             @id @default(cuid())
+  businessId      String
+  code            String
+  customerId      String
+  currencyId      String
+  totalAmount     Decimal
+  paidAmount      Decimal            @default(0.0)
+  remainingAmount Decimal
+  status          InvoiceStatus      @default(ISSUED)
+  sourceType      FinanceSourceType
+  sourceId        String
+  
+  lines           CustomerInvoiceLine[]
+  payments        CustomerPayment[]
+  
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  deletedAt       DateTime?
+
+  customer        Customer           @relation(fields: [customerId], references: [id])
+  currency        Currency           @relation(fields: [currencyId], references: [id])
+  business        Business           @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, code])
+  @@unique([sourceType, sourceId])
+  @@index([businessId])
+  @@map("customer_invoices")
+}
+
+model CustomerInvoiceLine {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Decimal
+  unitPrice   Decimal
+  totalPrice  Decimal
+  
+  invoice     CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  @@index([invoiceId])
+  @@map("customer_invoice_lines")
+}
+
+model CustomerPayment {
+  id          String          @id @default(cuid())
+  businessId  String
+  invoiceId   String
+  amount      Decimal
+  currencyId  String
+  paymentDate DateTime        @default(now())
+  reference   String?
+  createdBy   String?
+  
+  invoice     CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  currency    Currency        @relation(fields: [currencyId], references: [id])
+  business    Business        @relation(fields: [businessId], references: [id])
+  
+  @@index([businessId])
+  @@index([invoiceId])
+  @@map("customer_payments")
+}
+
+model SupplierBill {
+  id              String             @id @default(cuid())
+  businessId      String
+  code            String
+  supplierId      String
+  currencyId      String
+  totalAmount     Decimal
+  paidAmount      Decimal            @default(0.0)
+  remainingAmount Decimal
+  status          BillStatus         @default(ISSUED)
+  sourceType      FinanceSourceType
+  sourceId        String
+  
+  lines           SupplierBillLine[]
+  payments        SupplierPayment[]
+  
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  deletedAt       DateTime?
+
+  supplier        Supplier           @relation(fields: [supplierId], references: [id])
+  currency        Currency           @relation(fields: [currencyId], references: [id])
+  business        Business           @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, code])
+  @@unique([sourceType, sourceId])
+  @@index([businessId])
+  @@map("supplier_bills")
+}
+
+model SupplierBillLine {
+  id          String       @id @default(cuid())
+  billId      String
+  description String
+  quantity    Decimal
+  unitPrice   Decimal
+  totalPrice  Decimal
+  
+  bill        SupplierBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  
+  @@index([billId])
+  @@map("supplier_bill_lines")
+}
+
+model SupplierPayment {
+  id          String       @id @default(cuid())
+  businessId  String
+  billId      String
+  amount      Decimal
+  currencyId  String
+  paymentDate DateTime     @default(now())
+  reference   String?
+  createdBy   String?
+  
+  bill        SupplierBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  currency    Currency     @relation(fields: [currencyId], references: [id])
+  business    Business     @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@index([billId])
+  @@map("supplier_payments")
+}
+
+model CashTransaction {
+  id          String              @id @default(cuid())
+  businessId  String
+  type        CashTransactionType
+  amount      Decimal
+  currencyId  String
+  reference   String?
+  description String?
+  sourceType  FinanceSourceType?
+  sourceId    String?
+  occurredAt  DateTime            @default(now())
+  createdBy   String?
+  
+  currency    Currency            @relation(fields: [currencyId], references: [id])
+  business    Business            @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@map("cash_transactions")
+}

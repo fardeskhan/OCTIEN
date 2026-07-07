@@ -1,0 +1,5 @@
+routes:
+  - path: /documents
+    component: DashboardView
+  - path: /documents/:id
+    component: WorkspaceView

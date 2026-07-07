@@ -1,0 +1,57 @@
+type Adjustment = {
+  id: string
+  date: string
+  status: "Pending" | "Approved" | "Rejected"
+  location: string
+  reason: string
+  amount: number
+}
+
+type Movement = {
+  id: string
+  date: string
+  type: "Receipt" | "Issue" | "Transfer" | "Adjustment"
+  productCode: string
+  quantity: number
+  location: string
+  reference: string
+}
+
+type StockLevel = {
+  id: string
+  productCode: string
+  productName: string
+  warehouse: string
+  zone: string
+  onHand: number
+  allocated: number
+  available: number
+  status: "In Stock" | "Low Stock" | "Out of Stock"
+}
+
+type Product = {
+  id: string
+  code: string
+  name: string
+  category: string
+  status: "Active" | "Draft" | "Archived"
+  stock: number
+  price: number
+}
+
+type Transfer = {
+  id: string
+  date: string
+  status: "Pending" | "In Transit" | "Completed" | "Cancelled"
+  source: string
+  destination: string
+  items: number
+}
+
+type Valuation = {
+  category: string
+  totalItems: number
+  avgCost: number
+  totalValue: number
+  turnoverRatio: number
+}

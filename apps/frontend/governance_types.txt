@@ -1,0 +1,87 @@
+type DelegatedRule = {
+  id: string
+  delegate: string
+  type: string
+  startDate: string
+  endDate: string
+  status: "Active" | "Scheduled" | "Expired"
+}
+
+type EWB = {
+  ewbNo: string
+  date: string
+  vehicle: string
+  destination: string
+  status: "Active" | "Expired" | "Cancelled"
+  validUntil: string
+}
+
+type ComplianceException = {
+  id: string
+  source: string
+  issue: string
+  severity: "Critical" | "Warning"
+  detectedAt: string
+  assignedTo: string
+}
+
+type GSTFiling = {
+  id: string
+  period: string
+  formType: string
+  status: "Filed" | "Draft" | "Overdue" | "Failed"
+  dueDate: string
+  taxAmount: number
+}
+
+type ComplianceJob = {
+  id: string
+  name: string
+  schedule: string
+  lastRun: string
+  status: "Success" | "Failed" | "Running"
+  nextRun: string
+}
+
+type ComplianceTask = {
+  id: string
+  task: string
+  category: string
+  dueDate: string
+  status: "Pending" | "Completed" | "Overdue"
+  assignedTo: string
+}
+
+type PermissionDef = {
+  id: string
+  module: string
+  action: string
+  description: string
+}
+
+type AccessReview = {
+  id: string
+  campaign: string
+  reviewer: string
+  status: "Pending" | "In Progress" | "Completed"
+  dueDate: string
+  progress: number
+}
+
+type Role = {
+  id: string
+  name: string
+  description: string
+  assignedUsers: number
+  isCustom: boolean
+}
+
+type User = {
+  id: string
+  name: string
+  email: string
+  role: string
+  lastLogin: string
+  status: "Active" | "Dormant" | "Disabled"
+  isAdmin: boolean
+}

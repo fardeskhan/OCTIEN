@@ -1,0 +1,23 @@
+{
+  "name": "cosmy-bos",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w apps/frontend\" \"npm run start:dev -w apps/backend\"",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "cosmy": "node scripts/cosmy.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "decimal.js": "^10.6.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.3",
+    "vitest": "^4.1.9"
+  }
+}

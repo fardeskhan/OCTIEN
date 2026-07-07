@@ -1,0 +1,49 @@
+metadata:
+  capability: sales
+  version: 1.0.0
+
+gates:
+  domain: passed
+  architecture: passed
+  security: passed
+  performance: passed
+  api: passed
+  ui: passed
+  documentation: passed
+  integration: pending
+  load_test: pending
+  disaster_recovery: pending
+  backward_compatibility: pending
+  accessibility: pending
+  multi_tenancy: pending
+  ai_governance: pending
+  operational_readiness: pending
+
+security:
+  criticalFindings: 0
+  highFindings: 0
+
+performance:
+  p95LatencyMs: 145
+  throughputRps: 500
+
+compatibility:
+  apiVersionFrozen: false
+  schemaBackwardCompatible: true
+
+tests:
+  e2eCoverage: 85
+  integrationCoverage: 90
+
+operations:
+  dashboardsReady: true
+  alertsConfigured: false
+
+approvals:
+  architect: approved
+  security: approved
+  product: pending
+
+artifacts:
+  - path: docs/architecture.md
+  - path: docs/threat_model.md

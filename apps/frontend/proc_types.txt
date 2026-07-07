@@ -1,0 +1,25 @@
+type PurchaseOrder = {
+  id: string
+  date: string
+  supplier: string
+  status: "Draft" | "Approved" | "Sent" | "Partial" | "Received" | "Cancelled"
+  total: number
+}
+
+type Receipt = {
+  id: string
+  date: string
+  poNumber: string
+  supplier: string
+  status: "Pending" | "Completed" | "Discrepancy"
+  items: number
+}
+
+type Supplier = {
+  id: string
+  name: string
+  category: string
+  status: "Active" | "Pending Review" | "Inactive"
+  rating: number // out of 5
+  leadTime: string
+}

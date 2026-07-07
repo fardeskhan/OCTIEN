@@ -1,0 +1,32 @@
+adapter:
+  id: account-aggregator
+  version: 1.0.0
+  certification: Production
+  apiVersion: v2
+
+authentication:
+  oauth: true
+  pkce: true
+  mtls: false
+
+features:
+  accountDiscovery: true
+  realtimeBalance: true
+  transactions: true
+  statements: false
+  webhooks: true
+  cursorSync: true
+  pagination: cursor
+
+limits:
+  requestsPerMinute: 600
+  maxAccounts: 1000
+
+security:
+  signatureValidation: true
+  replayProtection: true
+  encryption: AES256
+
+health:
+  latencySLO: 500ms
+  availabilitySLO: 99.9%

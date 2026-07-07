@@ -1,0 +1,16 @@
+adapterId: account-aggregator
+version: 1.0.0
+
+required:
+  contractTests: 100
+  securityTests: pass
+  performanceTests: pass
+  webhookTests: pass
+  replayTests: pass
+  telemetryTests: pass
+  documentation: required
+
+slo:
+  p95Latency: 500ms
+  uptime: 99.9%
+  successRate: 99.5%

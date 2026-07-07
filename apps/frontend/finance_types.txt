@@ -1,0 +1,116 @@
+type JournalEntry = {
+  id: string
+  date: string
+  reference: string
+  description: string
+  status: "Draft" | "Posted" | "Reversed"
+  debit: number
+  credit: number
+}
+
+type LedgerEntry = {
+  id: string
+  date: string
+  account: string
+  description: string
+  journalRef: string
+  debit: number | null
+  credit: number | null
+  runningBalance: number
+}
+
+type TrialBalanceEntry = {
+  account: string
+  name: string
+  type: "Asset" | "Liability" | "Equity" | "Revenue" | "Expense"
+  debit: number | null
+  credit: number | null
+}
+
+type DepreciationEntry = {
+  id: string
+  assetName: string
+  method: string
+  period: string
+  amount: number
+  posted: boolean
+}
+
+type AssetMovement = {
+  id: string
+  date: string
+  asset: string
+  type: "Acquisition" | "Disposal" | "Transfer" | "Revaluation"
+  amount: number
+  description: string
+}
+
+type Asset = {
+  id: string
+  name: string
+  category: string
+  location: string
+  purchaseCost: number
+  bookValue: number
+  status: "Active" | "Disposed" | "In Repair"
+}
+
+type CloseTask = {
+  id: string
+  category: string
+  task: string
+  assignedTo: string
+  dueDate: string
+  status: "Not Started" | "In Progress" | "Completed" | "Blocked"
+  critical: boolean
+}
+
+type CloseHistory = {
+  period: string
+  closedBy: string
+  closedAt: string
+  durationDays: number
+  adjustments: number
+}
+
+type Period = {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  status: "Open" | "Closed" | "Adjusting"
+}
+
+type BankAccount = {
+  id: string
+  name: string
+  bank: string
+  accountNumber: string
+  currency: string
+  status: "Active" | "Closed" | "Frozen"
+}
+
+type CashPosition = {
+  account: string
+  bank: string
+  currency: string
+  balance: number
+  reconciledDate: string
+}
+
+type ForecastItem = {
+  date: string
+  inflows: number
+  outflows: number
+  netPosition: number
+  projectedBalance: number
+}
+
+type ReconItem = {
+  id: string
+  date: string
+  description: string
+  amount: number
+  type: "Bank Feed" | "Ledger Entry"
+  matchStatus: "Matched" | "Unmatched" | "Suggested"
+}

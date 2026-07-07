@@ -1,0 +1,34 @@
+adapter:
+  id: icici-corporate
+  version: 2.1.0
+  certification: Certified
+  apiVersion: v2
+
+authentication:
+  oauth: true
+  pkce: false
+  mtls: true
+  credentialRotation: true
+
+features:
+  accountDiscovery: false
+  realtimeBalance: true
+  transactions: true
+  statements: true
+  webhooks: true
+  cursorSync: true
+  pagination: cursor
+
+limits:
+  requestsPerMinute: 200
+  maxAccounts: 500
+  webhookRetryBackoff: exponential
+
+security:
+  signatureValidation: true
+  replayProtection: true
+  encryption: AES256
+
+health:
+  latencySLO: 300ms
+  availabilitySLO: 99.95%

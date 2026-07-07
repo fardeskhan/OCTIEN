@@ -1,0 +1,27 @@
+type Customer = {
+  id: string
+  name: string
+  type: "B2B" | "Retail" | "Distributor"
+  status: "Active" | "On Hold" | "Inactive"
+  healthScore: number // out of 100
+  outstandingBalance: number
+  lastOrderDate: string
+}
+
+type Invoice = {
+  id: string
+  date: string
+  dueDate: string
+  customer: string
+  status: "Draft" | "Sent" | "Paid" | "Overdue" | "Cancelled"
+  total: number
+  balance: number
+}
+
+type SalesOrder = {
+  id: string
+  date: string
+  customer: string
+  status: "Draft" | "Confirmed" | "Processing" | "Shipped" | "Delivered" | "Cancelled"
+  total: number
+}

@@ -1,0 +1,5 @@
+routes:
+  - path: /banking
+    component: DashboardView
+  - path: /banking/:id
+    component: WorkspaceView

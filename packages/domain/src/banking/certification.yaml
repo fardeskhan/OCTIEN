@@ -1,0 +1,49 @@
+metadata:
+  capability: banking
+  version: 1.0.0
+
+gates:
+  domain: passed
+  architecture: passed
+  security: pending
+  performance: pending
+  api: pending
+  ui: pending
+  documentation: pending
+  integration: pending
+  load_test: pending
+  disaster_recovery: pending
+  backward_compatibility: pending
+  accessibility: pending
+  multi_tenancy: pending
+  ai_governance: pending
+  operational_readiness: pending
+
+security:
+  criticalFindings: 0
+  highFindings: 0
+
+performance:
+  p95LatencyMs: 0
+  throughputRps: 0
+
+compatibility:
+  apiVersionFrozen: false
+  schemaBackwardCompatible: true
+
+tests:
+  e2eCoverage: 0
+  integrationCoverage: 0
+
+operations:
+  dashboardsReady: false
+  alertsConfigured: false
+
+approvals:
+  architect: pending
+  security: pending
+  product: pending
+
+artifacts:
+  - path: docs/architecture.md
+  - path: docs/threat_model.md

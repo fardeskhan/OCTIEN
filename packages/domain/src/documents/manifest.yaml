@@ -1,0 +1,58 @@
+identity:
+  id: documents
+  displayName: documents
+  description: Generated capability for documents.
+
+version: 1.0.0
+dependencies: []
+
+contracts:
+  commands: []
+  queries: []
+  publishes: []
+  subscribes: []
+
+permissionshealth:
+  live: /api/v1/documents/health/live
+  ready: /api/v1/documents/health/ready
+  startup: /api/v1/documents/health/startup
+  metadata: /api/v1/documents/health/metadata
+
+metrics:
+  dashboards: []
+
+featureFlags:
+  # Example: 
+  # - id: Feature.Name
+  #   state: Experimental | Beta | Stable | Enterprise | Internal | Deprecated
+  #   owner: Team
+  #   rollout: 0
+  #   introducedVersion: 1.0.0
+  #   removedVersion: null
+
+branding:
+  supportsMultiProfile: true
+
+ai:
+  explainable: true
+  simulation: true
+  rollback: false
+  approvalRequired: true
+  humanReview: false
+  offlineSupport: false
+  streaming: false
+  toolCalling: true
+  riskLevel: Low
+  safeRetry: true
+  compensationAvailable: false
+
+operations:
+  health:
+    live: /api/v1/documents/health/live
+    ready: /api/v1/documents/health/ready
+  featureFlags: []
+
+certification:
+  status: Prototype
+  gatesPassed: 0
+  score: 0

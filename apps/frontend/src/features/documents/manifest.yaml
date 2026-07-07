@@ -1,0 +1,9 @@
+identity:
+  id: documents
+  version: 1.0.0
+
+entrypoints:
+  - id: dashboard
+    type: view
+  - id: workspace
+    type: shell
