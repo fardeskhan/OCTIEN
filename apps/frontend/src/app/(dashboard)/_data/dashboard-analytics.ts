@@ -71,18 +71,34 @@ export async function getActivityAndDocs(tenantId: string): Promise<{ activity: 
       a.name,
     ])
   );
-  const activity: ActivityItem[] = audit.map((a) => {
-    const meta = (a.metadata ?? {}) as Record<string, unknown>;
-    const detail = (meta.code as string) ?? (meta.name as string) ?? (meta.count ? `${meta.count} records` : "");
-    return {
-      when: a.occurredAt,
-      actor: actorName.get(a.actorId) ?? "System",
-      action: a.action.replace(/_/g, " "),
-      resource: a.resource.replace(/_/g, " "),
-      business: a.businessId ? bizName.get(a.businessId) ?? "" : "Tenant",
-      detail: String(detail),
-    };
-  });
+  const activity: ActivityItem[] = audit.map(
+    (a: {
+      actorId: string;
+      action: string;
+      resource: string;
+      businessId: string | null;
+      metadata: unknown;
+      occurredAt: Date;
+    }) => {
+      const meta = (a.metadata ?? {}) as Record<string, unknown>;
+
+      const detail =
+        (meta.code as string) ??
+        (meta.name as string) ??
+        (meta.count ? `${meta.count} records` : "");
+
+      return {
+        when: a.occurredAt,
+        actor: actorName.get(a.actorId) ?? "System",
+        action: a.action.replace(/_/g, " "),
+        resource: a.resource.replace(/_/g, " "),
+        business: a.businessId
+          ? bizName.get(a.businessId) ?? ""
+          : "Tenant",
+        detail: String(detail),
+      };
+    }
+  );
 
   const docs: RecentDoc[] = [
     ...invoices.map((i) => ({ kind: "Invoice", code: i.code, href: `/sales/invoices/${i.id}`, party: i.customer.name, amount: i.totalAmount.toNumber(), when: i.createdAt })),
