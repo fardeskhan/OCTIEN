@@ -1,27 +1,21 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
-import { withActiveRecords } from "@/lib/db-helpers";
-import { cookies } from "next/headers";
-import { processOutboxBatch } from "@/lib/outbox";
 import { revalidatePath } from "next/cache";
 import { v4 as uuidv4 } from "uuid";
 
-function getBusinessId() {
-  const cookieStore = cookies();
-  const businessId = cookieStore.get("current_business_id")?.value;
-  if (!businessId) throw new Error("No business context selected");
-  return businessId;
+async function getBusinessId() {
+  const { getActiveBusinessId } = await import("@/lib/server-auth");
+  return getActiveBusinessId();
 }
 
 async function generateSalesOrderCode(businessId: string): Promise<string> {
-  const count = await db.salesOrder.count({ where: withActiveRecords({ businessId }) });
+  const count = await db.salesOrder.count({ where: { businessId } });
   return `SO-${String(count + 1).padStart(5, "0")}`;
 }
 
 export async function createSalesOrderFromQuote(quoteId: string) {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   const quote = await db.quotation.findUnique({
     where: { id: quoteId, businessId },
     include: { lines: true }
@@ -51,38 +45,38 @@ export async function createSalesOrderFromQuote(quoteId: string) {
     }
   });
 
-  revalidatePath("/dashboard/sales/orders");
+  revalidatePath("/sales/orders");
   return order;
 }
 
 export async function approveSalesOrder(id: string) {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   const order = await db.salesOrder.update({
-    where: withActiveRecords({ id, businessId }),
+    where: { id, businessId },
     data: { status: "APPROVED" }
   });
-  revalidatePath("/dashboard/sales/orders");
+  revalidatePath("/sales/orders");
   return order;
 }
 
 export async function confirmSalesOrder(id: string) {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   // Ensure order is APPROVED or DRAFT (depending on strictness)
   const order = await db.salesOrder.findUnique({
-    where: withActiveRecords({ id, businessId }),
+    where: { id, businessId },
     include: { lines: true }
   });
 
   if (!order) throw new Error("Order not found");
 
   await db.salesOrder.update({
-    where: withActiveRecords({ id, businessId }),
+    where: { id, businessId },
     data: { status: "CONFIRMED" }
   });
 
   // Outbox event to trigger inventory reservation
   const tenantMembership = await db.membership.findFirst({
-    where: withActiveRecords({ businessId }),
+    where: { businessId },
     include: { business: true }
   });
   const tenantId = tenantMembership?.business.tenantId || "UNKNOWN";
@@ -108,28 +102,28 @@ export async function confirmSalesOrder(id: string) {
     }
   });
 
-  revalidatePath("/dashboard/sales/orders");
-  revalidatePath(`/dashboard/sales/orders/${id}`);
+  revalidatePath("/sales/orders");
+  revalidatePath(`/sales/orders/${id}`);
   return order;
 }
 
 export async function fulfillSalesOrder(id: string) {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   const order = await db.salesOrder.findUnique({
-    where: withActiveRecords({ id, businessId }),
+    where: { id, businessId },
     include: { lines: true }
   });
 
   if (!order) throw new Error("Order not found");
 
   await db.salesOrder.update({
-    where: withActiveRecords({ id, businessId }),
+    where: { id, businessId },
     data: { status: "FULFILLED" }
   });
 
   // Outbox event for fulfillment
   const tenantMembership = await db.membership.findFirst({
-    where: withActiveRecords({ businessId }),
+    where: { businessId },
     include: { business: true }
   });
   const tenantId = tenantMembership?.business.tenantId || "UNKNOWN";
@@ -155,14 +149,14 @@ export async function fulfillSalesOrder(id: string) {
     }
   });
 
-  revalidatePath("/dashboard/sales/orders");
+  revalidatePath("/sales/orders");
   return order;
 }
 
 export async function getSalesOrders() {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   return db.salesOrder.findMany({
-    where: withActiveRecords({ businessId }),
+    where: { businessId },
     include: {
       customer: true,
       lines: {

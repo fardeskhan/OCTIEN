@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useState } from "react";
@@ -7,6 +6,14 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { createGoodsReceiptRequest } from "@/app/actions/receipt";
+
+interface ReceiptLine {
+  poLineId: string;
+  variantId: string;
+  variantName: string;
+  requestedQty: number;
+  maxQty: number;
+}
 
 export function NewReceiptForm({ po, warehouses }: { po: any, warehouses: any[] }) {
   // Initialize with unreceived quantities
@@ -20,7 +27,7 @@ export function NewReceiptForm({ po, warehouses }: { po: any, warehouses: any[] 
       maxQty: l.quantity - l.receivedQty
     }));
 
-  const [lines, setLines] = useState(initialLines);
+  const [lines, setLines] = useState<ReceiptLine[]>(initialLines);
 
   const handleChange = (index: number, value: number) => {
     const newLines = [...lines];
@@ -31,7 +38,7 @@ export function NewReceiptForm({ po, warehouses }: { po: any, warehouses: any[] 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-4">
-        <Link href={`/dashboard/operations/procurement/orders/${po.id}`}>
+        <Link href={`/operations/procurement/orders/${po.id}`}>
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-5 w-5" />
           </Button>
@@ -106,7 +113,7 @@ export function NewReceiptForm({ po, warehouses }: { po: any, warehouses: any[] 
         </Card>
 
         <div className="flex justify-end gap-2">
-          <Link href={`/dashboard/operations/procurement/orders/${po.id}`}>
+          <Link href={`/operations/procurement/orders/${po.id}`}>
             <Button type="button" variant="outline">Cancel</Button>
           </Link>
           <Button type="submit" disabled={lines.length === 0 || lines.every(l => l.requestedQty <= 0)}>

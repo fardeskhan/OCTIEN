@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Simulated HTTP Client.
 // In reality, this would be an Axios instance or a configured fetch wrapper.
 export const salesApiClient = {

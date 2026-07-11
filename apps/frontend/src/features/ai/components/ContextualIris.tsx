@@ -1,6 +1,5 @@
-// @ts-nocheck
 import React from 'react';
-import { ContextualIrisMetadata } from '../../shared/types/ContextualIris';
+import { ContextualIrisMetadata } from '@/shared/types/ContextualIris';
 
 export interface ContextualIrisProps {
   context: ContextualIrisMetadata;

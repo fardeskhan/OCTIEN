@@ -1,22 +1,20 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
 import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
-import { withActiveRecords } from "@/lib/db-helpers";
 import { processOutboxBatch } from "@/lib/outbox";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 export async function createShipment(formData: FormData) {
-  const { currentBusinessId, session } = await requireBusinessContext();
+  const { currentBusinessId, session, tenantId } = await requireBusinessContext();
   await requirePermission("fulfillment.create");
 
   const soId = formData.get("soId") as string;
   const warehouseId = formData.get("warehouseId") as string;
 
   const so = await db.salesOrder.findUnique({
-    where: withActiveRecords({ id: soId, businessId: currentBusinessId }),
+    where: { id: soId, businessId: currentBusinessId },
     include: { lines: true }
   });
 
@@ -32,8 +30,8 @@ export async function createShipment(formData: FormData) {
       soId,
       warehouseId,
       status: "DRAFT",
-      createdBy: session.userId,
-      updatedBy: session.userId,
+      createdBy: session.user.id,
+      updatedBy: session.user.id,
       lines: {
         create: so.lines.map(line => ({
           soLineId: line.id,
@@ -54,7 +52,7 @@ export async function createShipment(formData: FormData) {
       aggregateId: shipment.id,
       aggregateVersion: 1,
       businessId: currentBusinessId,
-      tenantId: session.tenantId || "SYSTEM",
+      tenantId: tenantId || "SYSTEM",
       occurredAt: new Date(),
       payload: { shipmentId: shipment.id, soId },
       status: "PENDING"
@@ -67,11 +65,11 @@ export async function createShipment(formData: FormData) {
 }
 
 export async function updateShipmentStatus(id: string, status: "PICKING" | "PACKING" | "READY_TO_DISPATCH" | "DISPATCHED" | "DELIVERED" | "CANCELLED", linesData?: any) {
-  const { currentBusinessId, session } = await requireBusinessContext();
+  const { currentBusinessId, session, tenantId } = await requireBusinessContext();
   await requirePermission("fulfillment.update");
 
   const shipment = await db.shipment.findUnique({
-    where: withActiveRecords({ id, businessId: currentBusinessId }),
+    where: { id, businessId: currentBusinessId },
     include: { lines: true }
   });
 
@@ -96,7 +94,7 @@ export async function updateShipmentStatus(id: string, status: "PICKING" | "PACK
       where: { id },
       data: {
         status,
-        updatedBy: session.userId,
+        updatedBy: session.user.id,
       }
     });
 
@@ -119,7 +117,7 @@ export async function updateShipmentStatus(id: string, status: "PICKING" | "PACK
           aggregateId: id,
           aggregateVersion: 1,
           businessId: currentBusinessId,
-          tenantId: session.tenantId || "SYSTEM",
+          tenantId: tenantId || "SYSTEM",
           occurredAt: new Date(),
           payload: { 
             shipmentId: id, 
@@ -139,7 +137,7 @@ export async function updateShipmentStatus(id: string, status: "PICKING" | "PACK
           aggregateId: id,
           aggregateVersion: 1,
           businessId: currentBusinessId,
-          tenantId: session.tenantId || "SYSTEM",
+          tenantId: tenantId || "SYSTEM",
           occurredAt: new Date(),
           payload: { shipmentId: id, soId: shipment.soId },
           status: "PENDING"

@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -17,7 +16,7 @@ const adjustStockSchema = z.object({
   productId: z.string().min(1, 'Product is required'),
   warehouseId: z.string().min(1, 'Warehouse is required'),
   batchId: z.string().min(1, 'Batch ID is required'),
-  quantity: z.coerce.number(), // Can be negative for cycle count shrinkage
+  quantity: z.number(), // Can be negative for cycle count shrinkage
   reason: z.string().min(1, 'Reason code is required'),
 });
 
@@ -54,7 +53,7 @@ export function AdjustStockDialog({ trigger, defaultProductId = '' }: { trigger:
             <FormField control={form.control} name="warehouseId" render={({ field }) => (<FormItem><FormLabel>Warehouse ID</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
             <div className="grid grid-cols-2 gap-4">
                <FormField control={form.control} name="batchId" render={({ field }) => (<FormItem><FormLabel>Batch ID</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-               <FormField control={form.control} name="quantity" render={({ field }) => (<FormItem><FormLabel>Delta Qty (-/+)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
+               <FormField control={form.control} name="quantity" render={({ field }) => (<FormItem><FormLabel>Delta Qty (-/+)</FormLabel><FormControl><Input type="number" {...field} onChange={(e) => field.onChange(e.target.valueAsNumber)} /></FormControl><FormMessage /></FormItem>)} />
             </div>
             <FormField control={form.control} name="reason" render={({ field }) => (<FormItem><FormLabel>Reason Code</FormLabel><FormControl><Input placeholder="e.g. SHRINKAGE" {...field} /></FormControl><FormMessage /></FormItem>)} />
             <div className="flex justify-end gap-3 pt-4 border-t border-border mt-6">

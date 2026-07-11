@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useEffect, useState } from 'react';
 import { certificationApi, CapabilityCertificationScore } from '../api/certificationApi';
 

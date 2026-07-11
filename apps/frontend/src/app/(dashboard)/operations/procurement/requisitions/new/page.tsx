@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { db } from "@/lib/db";
 import { requireBusinessContext } from "@/lib/server-auth";
 import { NewRequisitionForm } from "@/components/procurement/new-requisition-form";

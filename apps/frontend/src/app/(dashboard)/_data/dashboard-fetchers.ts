@@ -1,18 +1,11 @@
 import { DashboardService } from "@/lib/dashboard/dashboard-service"
 
 export async function getGroupDashboardData(tenantId: string) {
-  // Real data
+  // Real per-business scorecard (DashboardService reads live financial data).
   const scorecard = await DashboardService.getBusinessScorecard(tenantId)
-  
-  // Fake historical cash flow data for chart
-  const cashFlowData = Array.from({ length: 30 }).map((_, i) => ({
-    date: new Date(Date.now() - (29 - i) * 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    cash: 5000000 + Math.random() * 2000000 - 1000000 + (i * 50000)
-  }))
 
   return {
-    scorecard,
-    cashFlowData
+    scorecard
   }
 }
 

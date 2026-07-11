@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client"
 
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"

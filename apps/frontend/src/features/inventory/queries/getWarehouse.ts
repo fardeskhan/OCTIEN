@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useQuery } from '@tanstack/react-query';
 
 export function useInventoryWarehouse(businessId: string, warehouseId: string) {

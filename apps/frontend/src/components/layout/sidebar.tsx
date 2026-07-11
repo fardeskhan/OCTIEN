@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import Link from "next/link";
@@ -13,7 +12,9 @@ import {
   Droplet,
   GlassWater,
   Box,
-  Shield
+  Shield,
+  Truck,
+  Building2
 } from "lucide-react";
 
 type NavigationItem = {
@@ -24,20 +25,22 @@ type NavigationItem = {
 };
 
 const navigation: NavigationItem[] = [
-  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Inventory", href: "/inventory", icon: Package, permission: "inventory.read" },
   { title: "Procurement", href: "/operations/procurement", icon: ShoppingCart, permission: "procurement.read" },
+  { title: "Logistics", href: "/operations/logistics", icon: Truck, permission: "logistics.read" },
   { title: "Reports", href: "/reports", icon: Banknote, permission: "reporting.read" },
   { title: "Sales", href: "/sales", icon: Users, permission: "sales.read" },
   { title: "Finance", href: "/finance", icon: Banknote, permission: "finance.read" },
   { title: "Governance", href: "/governance", icon: Shield, permission: "governance.read" },
+  { title: "Businesses", href: "/business", icon: Building2 },
   { title: "UCO Collections", href: "/uco", icon: Droplet, permission: "uco.read" },
   { title: "Salam Cola", href: "/salam-cola", icon: GlassWater, permission: "salam.read" },
   { title: "Casa De Lumas", href: "/lumas", icon: Box, permission: "lumas.read" },
 ];
 
 export function Sidebar({ userPermissions }: { userPermissions: string[] }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
 
   const filteredNavigation = navigation.filter((item) => {
     if (!item.permission) return true;
@@ -48,13 +51,14 @@ export function Sidebar({ userPermissions }: { userPermissions: string[] }) {
   });
 
   return (
-    <div className="flex h-full w-64 flex-col border-r bg-white dark:bg-zinc-950 border-gray-200 dark:border-zinc-800">
-      <div className="flex h-14 items-center border-b px-4 border-gray-200 dark:border-zinc-800">
-        <h1 className="font-bold text-lg tracking-tight">COSMY ERP</h1>
+    <div className="flex h-full w-64 flex-col border-r border-border bg-card">
+      <div className="flex h-14 items-center gap-2 border-b border-border px-4">
+        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold">C</div>
+        <h1 className="font-semibold text-[15px] tracking-tight">COSMY ERP</h1>
       </div>
-      <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
         {filteredNavigation.map((item) => {
-          const isActive = pathname.startsWith(item.href) && (item.href !== "/dashboard" || pathname === "/dashboard");
+          const isActive = pathname.startsWith(item.href) && (item.href !== "/" || pathname === "/");
           return (
             <Link
               key={item.title}
@@ -62,16 +66,14 @@ export function Sidebar({ userPermissions }: { userPermissions: string[] }) {
               className={cn(
                 "group flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-gray-100 text-gray-900 dark:bg-zinc-800 dark:text-white"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-zinc-800/50 dark:hover:text-white"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
               <item.icon
                 className={cn(
-                  "mr-3 h-5 w-5 flex-shrink-0",
-                  isActive
-                    ? "text-gray-900 dark:text-white"
-                    : "text-gray-400 group-hover:text-gray-900 dark:text-gray-500 dark:group-hover:text-white"
+                  "mr-3 h-[18px] w-[18px] flex-shrink-0 transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground/70 group-hover:text-foreground"
                 )}
                 aria-hidden="true"
               />

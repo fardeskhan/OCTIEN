@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { db } from "@/lib/db";
 import { requireBusinessContext } from "@/lib/server-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,11 +6,12 @@ import { updatePurchaseOrderStatus } from "@/app/actions/order";
 import Link from "next/link";
 import { ArrowLeft, Check, Send, Truck } from "lucide-react";
 
-export default async function OrderDetailsPage({ params }: { params: { id: string } }) {
+export default async function OrderDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const { currentBusinessId } = await requireBusinessContext();
 
   const po = await db.purchaseOrder.findUnique({
-    where: { id: params.id, businessId: currentBusinessId },
+    where: { id, businessId: currentBusinessId },
     include: {
       supplier: true,
       currency: true,

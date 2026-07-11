@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client"
 
 import { Progress as ProgressPrimitive } from "@base-ui/react/progress"

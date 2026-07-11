@@ -1,176 +1,46 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { EntityDrawer } from "@/components/layout/drawer-layout"
-import { Progress } from "@/components/ui/progress"
-import { Customer } from "@/types"
-import { mockCustomers } from "@/app/(dashboard)/_data/sales"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { CustomersList, type CustomerRow } from "./customers-list";
+import type { Customer } from "@/types";
 
+const STATUS_MAP: Record<string, NonNullable<Customer["status"]>> = {
+  ACTIVE: "Active",
+  ON_HOLD: "On Hold",
+  INACTIVE: "Inactive",
+};
+const HEALTH_MAP: Record<string, number> = { GOOD: 92, HOLD: 58, BLOCKED: 30 };
 
-export default function CustomersPage() {
-  const [selectedCustomer, setSelectedCustomer] = React.useState<Customer | null>(null)
+export default async function CustomersPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("sales.read");
 
-  const columns: ColumnDef<Customer>[] = [
-    {
-      accessorKey: "name",
-      header: "Customer Name",
-      cell: ({ row }) => (
-        <span 
-          className="font-medium text-primary hover:underline cursor-pointer"
-          onClick={() => setSelectedCustomer(row.original)}
-        >
-          {row.getValue("name")}
-        </span>
-      ),
+  const customers = await db.customer.findMany({
+    where: { businessId, deletedAt: null },
+    include: {
+      customerInvoices: { where: { deletedAt: null }, select: { remainingAmount: true, createdAt: true } },
+      salesOrders: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
     },
-    {
-      accessorKey: "type",
-      header: "Type",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as string
-        return (
-          <Badge variant={status === "Active" ? "default" : status === "On Hold" ? "destructive" : "secondary"}>
-            {status}
-          </Badge>
-        )
-      }
-    },
-    {
-      accessorKey: "healthScore",
-      header: "Health Score",
-      cell: ({ row }) => {
-        const score = row.getValue("healthScore") as number
-        return (
-          <div className="flex items-center gap-2">
-            <Progress value={score} className="w-16 h-2" indicatorClassName={score >= 80 ? "bg-emerald-500" : score >= 60 ? "bg-amber-500" : "bg-red-500"} />
-            <span className="text-xs font-medium">{score}/100</span>
-          </div>
-        )
-      },
-    },
-    {
-      accessorKey: "outstandingBalance",
-      header: () => <div className="text-right">Outstanding</div>,
-      cell: ({ row }) => {
-        const bal = row.getValue("outstandingBalance") as number
-        return <div className={`text-right font-medium ${bal > 0 ? "text-amber-600 dark:text-amber-500" : ""}`}>${bal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-      },
-    },
-    {
-      accessorKey: "lastOrderDate",
-      header: "Last Order",
-      cell: ({ row }) => <span className="text-muted-foreground">{row.getValue("lastOrderDate")}</span>,
-    },
-  ]
+    orderBy: { createdAt: "desc" },
+  });
 
-  return (
-    <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Customers" 
-        description="Manage customer relationships, health scores, and balances."
-        actions={<Button>New Customer</Button>}
-      />
-      
-      <FilterBar 
-        placeholder="Search customers..." 
-        views={["All", "Active", "B2B Only", "At Risk (Health < 60)"]}
-      />
+  const data: CustomerRow[] = customers.map((c) => {
+    const outstanding = c.customerInvoices.reduce((s, inv) => s + inv.remainingAmount.toNumber(), 0);
+    const openInvoices = c.customerInvoices.filter((inv) => inv.remainingAmount.toNumber() > 0).length;
+    const lastOrder = c.salesOrders[0]?.createdAt ?? c.customerInvoices[0]?.createdAt ?? null;
+    return {
+      id: c.id,
+      code: c.code,
+      name: c.name,
+      status: STATUS_MAP[c.status] ?? "Active",
+      creditStatus: c.creditStatus,
+      healthScore: HEALTH_MAP[c.creditStatus] ?? 70,
+      outstandingBalance: Math.round(outstanding),
+      openInvoices,
+      lastOrderDate: lastOrder ? lastOrder.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "",
+    };
+  });
 
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockCustomers} 
-        />
-      </div>
-
-      <EntityDrawer
-        open={!!selectedCustomer}
-        onOpenChange={(open) => !open && setSelectedCustomer(null)}
-        title={selectedCustomer?.name}
-        kpis={
-          <>
-            <div className="flex flex-col gap-1 border-r border-border px-4 first:pl-0">
-              <span className="text-xs text-muted-foreground">Health Score</span>
-              <div className="flex items-center gap-2 mt-1">
-                <Progress value={selectedCustomer?.healthScore || 0} className="w-full h-1.5" indicatorClassName={(selectedCustomer?.healthScore || 0) >= 80 ? "bg-emerald-500" : (selectedCustomer?.healthScore || 0) >= 60 ? "bg-amber-500" : "bg-red-500"} />
-                <span className="text-sm font-semibold">{selectedCustomer?.healthScore}</span>
-              </div>
-            </div>
-            <div className="flex flex-col gap-1 border-r border-border px-4">
-              <span className="text-xs text-muted-foreground">Outstanding Balance</span>
-              <span className="font-semibold text-amber-600 dark:text-amber-500">${(selectedCustomer?.outstandingBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            </div>
-            <div className="flex flex-col gap-1 border-r border-border px-4">
-              <span className="text-xs text-muted-foreground">Last Order</span>
-              <span className="font-semibold">{selectedCustomer?.lastOrderDate}</span>
-            </div>
-            <div className="flex flex-col gap-1 px-4">
-              <span className="text-xs text-muted-foreground">Status</span>
-              <Badge className="w-fit" variant={selectedCustomer?.status === "Active" ? "default" : "destructive"}>
-                {selectedCustomer?.status}
-              </Badge>
-            </div>
-          </>
-        }
-        tabs={
-          <div className="flex gap-4 border-b border-border mt-4">
-            <div className="border-b-2 border-primary pb-2 text-sm font-medium cursor-pointer">Summary</div>
-            <div className="text-sm text-muted-foreground pb-2 cursor-pointer hover:text-foreground">Orders</div>
-            <div className="text-sm text-muted-foreground pb-2 cursor-pointer hover:text-foreground">Invoices</div>
-            <div className="text-sm text-muted-foreground pb-2 cursor-pointer hover:text-foreground">Activity</div>
-            <div className="text-sm text-muted-foreground pb-2 cursor-pointer hover:text-foreground">Audit</div>
-          </div>
-        }
-        actions={
-          <>
-            <Button variant="outline">View Ledger</Button>
-            <Button variant="outline">Create Order</Button>
-            <Button>Edit Customer</Button>
-          </>
-        }
-      >
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-sm font-medium mb-4">Customer Details</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">Customer ID</span>
-                <p className="text-sm">{selectedCustomer?.id}</p>
-              </div>
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">Type</span>
-                <p className="text-sm">{selectedCustomer?.type}</p>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-sm font-medium mb-4">Health Score Factors</h3>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Payment Behavior</span>
-                <Badge variant={selectedCustomer?.healthScore! >= 80 ? "outline" : "destructive"}>
-                  {selectedCustomer?.healthScore! >= 80 ? "On Time" : "Usually Late"}
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Order Frequency</span>
-                <span className="text-sm font-medium">Consistent</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </EntityDrawer>
-    </WorkspaceLayout>
-  )
+  return <CustomersList data={data} />;
 }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { salesApiClient } from '../../sales/api/client'; // Reusing base client for mock
 
 export interface CapabilityCertificationScore {

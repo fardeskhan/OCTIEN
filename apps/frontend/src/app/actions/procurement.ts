@@ -1,15 +1,17 @@
 // @ts-nocheck
+// KNOWN BUG (surfaced by R-5): createSupplierBill omits the required `account` (GL account)
+// on SupplierBillLine — line creation would fail at runtime. Needs domain input on which
+// account to assign before @ts-nocheck can be removed. Tracked in TYPE_SAFETY_REPORT.md.
 "use server";
 
 import { db } from "@/lib/db";
-import { requireBusinessContext } from "@/lib/auth/context";
-import { requirePermission } from "@/lib/auth/rbac";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
 import { processOutboxBatch } from "@/lib/outbox";
 import { Prisma } from "@prisma/client";
 
 export async function approveSupplierBill(billId: string) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "finance.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("finance.write");
 
   return db.$transaction(async (tx) => {
     const bill = await tx.supplierBill.findUnique({
@@ -61,9 +63,9 @@ export async function approveSupplierBill(billId: string) {
   });
 }
 
-export async function createSupplierBill(data: { supplierId: string; currencyId: string; totalAmount: number; sourceType: any; sourceId: string; lines: any[] }) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "finance.write");
+export async function createSupplierBill(data: { supplierId: string; currencyId: string; totalAmount: number; sourceType: Prisma.SupplierBillCreateInput["sourceType"]; sourceId: string; lines: { description: string; quantity: number; unitPrice: number }[] }) {
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("finance.write");
 
   return db.$transaction(async (tx) => {
     const code = `SB-${Date.now()}`;

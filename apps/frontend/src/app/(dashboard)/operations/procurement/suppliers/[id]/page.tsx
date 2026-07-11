@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { db } from "@/lib/db";
 import { requireBusinessContext } from "@/lib/server-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,11 +6,12 @@ import { addSupplierContact } from "@/app/actions/supplier";
 import Link from "next/link";
 import { ArrowLeft, UserPlus, CheckCircle } from "lucide-react";
 
-export default async function ManageSupplierPage({ params }: { params: { id: string } }) {
+export default async function ManageSupplierPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const { currentBusinessId } = await requireBusinessContext();
 
   const supplier = await db.supplier.findUnique({
-    where: { id: params.id, businessId: currentBusinessId },
+    where: { id, businessId: currentBusinessId },
     include: {
       contacts: { orderBy: { createdAt: "desc" } }
     }
@@ -75,7 +75,13 @@ export default async function ManageSupplierPage({ params }: { params: { id: str
               <CardTitle>Add Contact</CardTitle>
             </CardHeader>
             <CardContent>
-              <form action={addSupplierContact} className="space-y-4">
+              <form
+                action={async (formData: FormData) => {
+                  "use server";
+                  await addSupplierContact(formData);
+                }}
+                className="space-y-4"
+              >
                 <input type="hidden" name="supplierId" value={supplier.id} />
                 
                 <div className="space-y-2">

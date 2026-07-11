@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev -w apps/frontend\" \"npm run start:dev -w apps/backend\"",
+    "dev": "npm run dev -w apps/frontend",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "cosmy": "node scripts/cosmy.mjs"
@@ -17,6 +17,7 @@
     "decimal.js": "^10.6.0"
   },
   "devDependencies": {
+    "concurrently": "^10.0.3",
     "prisma": "^6.19.3",
     "vitest": "^4.1.9"
   }

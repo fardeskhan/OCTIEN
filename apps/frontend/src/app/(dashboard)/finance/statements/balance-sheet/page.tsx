@@ -1,41 +1,50 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { FinancialStatementTable, FinancialRow } from "@/components/ui/financial-statement-table"
-import { Button } from "@/components/ui/button"
-import { mockBalanceSheetData } from "@/app/(dashboard)/_data/finance"
+export const dynamic = "force-dynamic";
 
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { FinancialReportingService } from "@/lib/finance/financial-reporting";
+import { getCurrentPeriod } from "@/lib/finance/period";
+import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout";
+import { FinancialStatementTable, type FinancialRow } from "@/components/ui/financial-statement-table";
+import { PrintButton } from "@/components/finance/print-button";
 
-export default function BalanceSheetPage() {
-  const [viewMode, setViewMode] = React.useState<"Actual" | "Variance">("Actual")
+export default async function BalanceSheetPage() {
+  const { currentBusinessId: businessId, userId } = await requireBusinessContext();
+  await requirePermission("finance.read");
+
+  const period = await getCurrentPeriod(businessId);
+  const bs = await FinancialReportingService.getBalanceSheet(businessId, userId, period.startDate, period.endDate);
+
+  const acctRows = (accounts: { accountId: string; accountCode: string; accountName: string; closingBalance: number }[]) =>
+    accounts.map((a) => ({ id: a.accountId, label: `${a.accountCode} · ${a.accountName}`, values: { actual: a.closingBalance } }));
+
+  const rows: FinancialRow[] = [
+    { id: "assets", label: "Assets", isSubtotal: true, values: { actual: bs.totalAssets }, children: acctRows(bs.assets.accounts) },
+    {
+      id: "liabilities", label: "Liabilities", isSubtotal: true, values: { actual: bs.liabilities.total },
+      children: acctRows(bs.liabilities.accounts),
+    },
+    {
+      id: "equity", label: "Equity", isSubtotal: true, values: { actual: bs.equity.total },
+      children: [
+        ...acctRows(bs.equity.accounts),
+        { id: "retained", label: "Current Period Profit", values: { actual: bs.equity.currentPeriodProfit } },
+      ],
+    },
+    { id: "total", label: "Total Liabilities & Equity", isTotal: true, values: { actual: bs.totalLiabilitiesAndEquity } },
+  ];
+
+  const balanced = Math.abs(bs.totalAssets - bs.totalLiabilitiesAndEquity) < 1;
 
   return (
     <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Balance Sheet" 
-        description="Statement of financial position at a specific point in time."
-        actions={
-          <>
-            <Button variant="outline" onClick={() => setViewMode(viewMode === "Actual" ? "Variance" : "Actual")}>
-               Toggle {viewMode === "Actual" ? "Variance" : "Actual"} Mode
-            </Button>
-            <Button>Export PDF</Button>
-          </>
-        }
+      <WorkspaceHeader
+        title="Balance Sheet"
+        description={`Financial position as at ${period.name} — ${balanced ? "assets = liabilities + equity ✓" : "review balancing"}.`}
+        actions={<PrintButton />}
       />
-      
-      <FilterBar 
-        placeholder="Filter..." 
-        views={["Today", "End of Last Month", "End of Q2 2026", "End of Year 2025"]}
-      />
-
       <div className="flex-1 overflow-auto mt-4 pb-12">
-        <FinancialStatementTable 
-          data={mockBalanceSheetData} 
-          showPrior={viewMode === "Variance"}
-        />
+        <FinancialStatementTable data={rows} currencySymbol="₹" />
       </div>
     </WorkspaceLayout>
-  )
+  );
 }

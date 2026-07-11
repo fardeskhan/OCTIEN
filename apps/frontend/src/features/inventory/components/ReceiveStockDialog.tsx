@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -17,7 +16,7 @@ const receiveStockSchema = z.object({
   productId: z.string().min(1, 'Product is required'),
   warehouseId: z.string().min(1, 'Warehouse is required'),
   batchId: z.string().min(1, 'Batch is required'),
-  quantity: z.coerce.number().positive('Quantity must be greater than zero'),
+  quantity: z.number().positive('Quantity must be greater than zero'),
 });
 
 type ReceiveFormValues = z.infer<typeof receiveStockSchema>;
@@ -117,7 +116,7 @@ export function ReceiveStockDialog({ trigger, defaultProductId = '' }: { trigger
                    <FormItem>
                      <FormLabel>Quantity</FormLabel>
                      <FormControl>
-                       <Input type="number" placeholder="0" {...field} />
+                       <Input type="number" placeholder="0" {...field} onChange={(e) => field.onChange(e.target.valueAsNumber)} />
                      </FormControl>
                      <FormMessage />
                    </FormItem>

@@ -1,4 +1,3 @@
-// @ts-nocheck
 export const salesKeys = {
   all: ['sales'] as const,
   dashboards: () => [...salesKeys.all, 'dashboard'] as const,

@@ -1,15 +1,13 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
-import { requireBusinessContext } from "@/lib/auth/context";
-import { requirePermission } from "@/lib/auth/rbac";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
 import { processOutboxBatch } from "@/lib/outbox";
 import { Prisma, PaymentMethod } from "@prisma/client";
 
 export async function registerSupplierPayment(data: { amount: number; currencyId: string; method: PaymentMethod; reference?: string; allocations: { payableEntryId: string; amount: number }[] }) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "finance.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("finance.write");
 
   return db.$transaction(async (tx) => {
     // Validate total amount matches allocations
@@ -65,7 +63,7 @@ export async function registerSupplierPayment(data: { amount: number; currencyId
             const bill = await tx.supplierBill.findUnique({ where: { id: payable.sourceId } });
             if (bill) {
                 const billNewPaid = bill.paidAmount.toNumber() + alloc.amount;
-                const billNewRemaining = bill.amount ? bill.amount.toNumber() - billNewPaid : bill.totalAmount.toNumber() - billNewPaid;
+                const billNewRemaining = bill.totalAmount.toNumber() - billNewPaid;
                 const billNewStatus = billNewRemaining <= 0 ? "PAID" : "PARTIALLY_PAID";
                 await tx.supplierBill.update({
                     where: { id: bill.id },

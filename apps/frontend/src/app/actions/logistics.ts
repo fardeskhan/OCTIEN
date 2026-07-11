@@ -1,15 +1,13 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
-import { requireBusinessContext } from "@/lib/auth/context";
-import { requirePermission } from "@/lib/auth/rbac";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
 import { processOutboxBatch } from "@/lib/outbox";
 import { EWayBillGenerationSource } from "@prisma/client";
 
 export async function createTransporter(data: { name: string; code: string; gstin?: string; contactName?: string; phone?: string }) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.transporter.create({
     data: {
@@ -20,8 +18,8 @@ export async function createTransporter(data: { name: string; code: string; gsti
 }
 
 export async function createVehicle(data: { transporterId: string; registration: string; type?: string; capacityKg?: number; capacityCases?: number; capacityVolume?: number }) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.vehicle.create({
     data: {
@@ -32,8 +30,8 @@ export async function createVehicle(data: { transporterId: string; registration:
 }
 
 export async function createDriver(data: { name: string; phone?: string; licenseNumber?: string; isExternal?: boolean; transporterId?: string; identityType?: string; identityReference?: string }) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.driver.create({
     data: {
@@ -44,8 +42,8 @@ export async function createDriver(data: { name: string; phone?: string; license
 }
 
 export async function createDeliveryRun(data: { code: string; transporterId: string; vehicleId: string; driverId?: string }) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.deliveryRun.create({
     data: {
@@ -56,8 +54,8 @@ export async function createDeliveryRun(data: { code: string; transporterId: str
 }
 
 export async function createDeliveryRunStop(data: { deliveryRunId: string; stopSequence: number; locationName?: string; customerId?: string; addressLine1?: string; city?: string; state?: string; postalCode?: string }) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.deliveryRunStop.create({
     data: {
@@ -68,8 +66,8 @@ export async function createDeliveryRunStop(data: { deliveryRunId: string; stopS
 }
 
 export async function assignShipmentsToStop(stopId: string, shipmentIds: string[]) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.$transaction(async (tx) => {
     for (const shipmentId of shipmentIds) {
@@ -94,8 +92,8 @@ export async function assignShipmentsToStop(stopId: string, shipmentIds: string[
 }
 
 export async function startDeliveryRun(runId: string) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.$transaction(async (tx) => {
     const run = await tx.deliveryRun.findUnique({
@@ -146,8 +144,8 @@ export async function startDeliveryRun(runId: string) {
 }
 
 export async function recordProofOfDelivery(shipmentId: string, data: { receivedBy: string; receiverPhone?: string; proofOfDeliveryUrl?: string; isPartial?: boolean }) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.$transaction(async (tx) => {
     const shipment = await tx.shipment.findUnique({ where: { id: shipmentId, businessId } });
@@ -187,8 +185,8 @@ export async function recordProofOfDelivery(shipmentId: string, data: { received
 }
 
 export async function completeDeliveryRun(runId: string) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   const run = await db.deliveryRun.findUnique({
     where: { id: runId, businessId },
@@ -202,8 +200,8 @@ export async function completeDeliveryRun(runId: string) {
 }
 
 export async function recordEWayBill(data: { ewbNumber: string; invoiceId: string; shipmentId?: string; validFrom?: Date; validUntil?: Date; vehicleNumber?: string; transporterName?: string; generationSource?: EWayBillGenerationSource }) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.eWayBill.create({
     data: {
@@ -216,8 +214,8 @@ export async function recordEWayBill(data: { ewbNumber: string; invoiceId: strin
 }
 
 export async function cancelEWayBill(ewbId: string, cancelReason: string) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "logistics.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("logistics.write");
 
   return db.eWayBill.update({
     where: { id: ewbId, businessId },

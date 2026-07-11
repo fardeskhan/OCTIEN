@@ -1,69 +1,36 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { SalesOrder } from "@/types"
-import { mockOrders } from "@/app/(dashboard)/_data/sales"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { SalesOrdersTable } from "./orders-table";
+import type { SalesOrder } from "@/types";
 
+const STATUS_MAP: Record<string, SalesOrder["status"]> = {
+  DRAFT: "Draft",
+  APPROVED: "Confirmed",
+  CONFIRMED: "Confirmed",
+  PARTIALLY_FULFILLED: "Processing",
+  FULFILLED: "Delivered",
+  CANCELLED: "Cancelled",
+};
 
-export default function SalesOrdersPage() {
-  const columns: ColumnDef<SalesOrder>[] = [
-    {
-      accessorKey: "id",
-      header: "Order ID",
-      cell: ({ row }) => <span className="font-medium text-primary hover:underline cursor-pointer">{row.getValue("id")}</span>,
-    },
-    {
-      accessorKey: "date",
-      header: "Date",
-    },
-    {
-      accessorKey: "customer",
-      header: "Customer",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as string
-        return (
-          <Badge variant={status === "Delivered" ? "default" : status === "Cancelled" ? "destructive" : "secondary"}>
-            {status}
-          </Badge>
-        )
-      }
-    },
-    {
-      accessorKey: "total",
-      header: () => <div className="text-right">Total Amount</div>,
-      cell: ({ row }) => <div className="text-right font-medium">${(row.getValue("total") as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>,
-    },
-  ]
+export default async function SalesOrdersPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("sales.read");
 
-  return (
-    <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Sales Orders" 
-        description="Manage order pipeline and fulfillment tracking."
-        actions={<Button>New Order</Button>}
-      />
-      
-      <FilterBar 
-        placeholder="Search orders..." 
-        views={["All", "Open Orders", "Processing", "Ready to Ship"]}
-      />
+  const orders = await db.salesOrder.findMany({
+    where: { businessId },
+    include: { customer: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
 
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockOrders} 
-        />
-      </div>
-    </WorkspaceLayout>
-  )
+  const data: SalesOrder[] = orders.map((so): SalesOrder => ({
+    id: so.code,
+    date: so.createdAt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+    customer: so.customer.name,
+    status: STATUS_MAP[so.status] ?? "Draft",
+    total: so.totalAmount,
+  }));
+
+  return <SalesOrdersTable data={data} />;
 }

@@ -1,71 +1,66 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader, WorkspaceKPIs } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { KPICard } from "@/components/ui/kpi-card"
-import { CashPosition } from "@/types"
-import { mockCashPositions } from "@/app/(dashboard)/_data/finance"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { formatINR } from "@/lib/currency";
+import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout";
+import { KPICard } from "@/components/ui/kpi-card";
+import { Card, CardContent } from "@/components/ui/card";
 
+export default async function CashPositionPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("finance.read");
 
-export default function CashPositionPage() {
-  const columns: ColumnDef<CashPosition>[] = [
-    {
-      accessorKey: "account",
-      header: "Account Name",
-      cell: ({ row }) => <span className="font-medium">{row.getValue("account")}</span>,
-    },
-    {
-      accessorKey: "bank",
-      header: "Bank",
-    },
-    {
-      accessorKey: "currency",
-      header: "Currency",
-    },
-    {
-      accessorKey: "balance",
-      header: () => <div className="text-right">Current Balance</div>,
-      cell: ({ row }) => <div className="text-right font-medium">${(row.getValue("balance") as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>,
-    },
-    {
-      accessorKey: "reconciledDate",
-      header: "Last Reconciled",
-      cell: ({ row }) => <span className="text-muted-foreground">{row.getValue("reconciledDate")}</span>,
-    },
-  ]
+  const [accounts, tx] = await Promise.all([
+    db.bankAccount.findMany({ where: { businessId } }),
+    db.cashTransaction.findMany({ where: { businessId }, orderBy: { occurredAt: "desc" } }),
+  ]);
 
-  const totalCash = mockCashPositions.reduce((acc, curr) => acc + curr.balance, 0)
+  const cashIn = tx.filter((t) => t.type === "CASH_IN").reduce((s, t) => s + t.amount.toNumber(), 0);
+  const cashOut = tx.filter((t) => t.type === "CASH_OUT").reduce((s, t) => s + t.amount.toNumber(), 0);
+  const position = accounts.reduce((s, a) => s + a.openingBalance.toNumber(), 0);
 
   return (
     <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Cash Position" 
-        description="Monitor liquidity across all corporate bank accounts."
-        actions={<Button>Transfer Funds</Button>}
-      />
+      <WorkspaceHeader title="Cash Position" description="Consolidated cash across bank accounts, with inflow/outflow." />
 
-      <WorkspaceKPIs>
-        <KPICard title="Total Cash Liquidity" value={`$${(totalCash / 1000000).toFixed(2)}M`} trend={2.1} freshness="Live" />
-        <KPICard title="Operating Cash" value="$850K" trend={-1.5} freshness="Live" />
-        <KPICard title="Restricted/Reserve Cash" value="$245K" trend={0} freshness="Live" />
-        <KPICard title="Accounts Reconciled" value="3/3" freshness="Updated 1h ago" />
-      </WorkspaceKPIs>
-      
-      <FilterBar 
-        placeholder="Search accounts..." 
-        views={["All Accounts", "USD Accounts", "Operating Only"]}
-      />
-
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockCashPositions} 
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <KPICard title="Cash Position" value={formatINR(position)} freshness="Live" />
+        <KPICard title="Cash In (period)" value={formatINR(cashIn)} variant="success" freshness="Live" />
+        <KPICard title="Cash Out (period)" value={formatINR(cashOut)} variant="destructive" freshness="Live" />
       </div>
+
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/40 text-muted-foreground border-b border-border">
+              <tr>
+                <th className="p-3 font-medium">Account</th>
+                <th className="p-3 font-medium">Currency</th>
+                <th className="p-3 font-medium text-right">Balance</th>
+                <th className="p-3 font-medium text-right">% of Cash</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {accounts.length === 0 ? (
+                <tr><td colSpan={4} className="p-8 text-center text-muted-foreground">No bank accounts configured.</td></tr>
+              ) : (
+                accounts.map((a) => {
+                  const bal = a.openingBalance.toNumber();
+                  return (
+                    <tr key={a.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="p-3 font-medium">{a.name}</td>
+                      <td className="p-3 text-muted-foreground">INR</td>
+                      <td className="p-3 text-right tabular-nums font-medium">{formatINR(bal)}</td>
+                      <td className="p-3 text-right tabular-nums text-muted-foreground">{position ? ((bal / position) * 100).toFixed(0) : 0}%</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
     </WorkspaceLayout>
-  )
+  );
 }

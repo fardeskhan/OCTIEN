@@ -1,1 +1,0 @@
-export const requirePermission = (p: string) => true;

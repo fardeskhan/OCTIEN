@@ -1,90 +1,56 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { DepreciationEntry } from "@/types"
-import { mockDepreciation } from "@/app/(dashboard)/_data/finance"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { formatINR } from "@/lib/currency";
+import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
+export default async function DepreciationPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("finance.read");
 
-export default function DepreciationPage() {
-  const columns: ColumnDef<DepreciationEntry>[] = [
-    {
-      id: "select",
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected()}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
-          disabled={row.original.posted}
-        />
-      ),
-      enableSorting: false,
-      enableHiding: false,
-    },
-    {
-      accessorKey: "assetName",
-      header: "Asset",
-      cell: ({ row }) => <span className="font-medium">{row.getValue("assetName")}</span>,
-    },
-    {
-      accessorKey: "method",
-      header: "Method",
-    },
-    {
-      accessorKey: "period",
-      header: "Period",
-    },
-    {
-      accessorKey: "amount",
-      header: () => <div className="text-right">Depreciation Expense</div>,
-      cell: ({ row }) => <div className="text-right tabular-nums">${(row.getValue("amount") as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>,
-    },
-    {
-      accessorKey: "posted",
-      header: "Status",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          {row.getValue("posted") ? (
-             <span className="text-emerald-600 dark:text-emerald-500 font-medium text-sm">Posted</span>
-          ) : (
-             <span className="text-muted-foreground text-sm">Draft</span>
-          )}
-        </div>
-      )
-    },
-  ]
+  const schedules = await db.depreciationSchedule.findMany({
+    where: { asset: { businessId } },
+    include: { asset: { select: { assetCode: true, name: true } } },
+    orderBy: { scheduledDate: "desc" },
+    take: 100,
+  });
 
   return (
     <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Depreciation Run" 
-        description="Calculate and post monthly depreciation journal entries."
-        actions={<Button>Post Selected to GL</Button>}
-      />
-      
-      <FilterBar 
-        placeholder="Search assets..." 
-        views={["June 2026 (Pending)", "May 2026 (Posted)"]}
-      />
-
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockDepreciation} 
-        />
-      </div>
+      <WorkspaceHeader title="Depreciation" description="Scheduled and posted depreciation across fixed assets." />
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/40 text-muted-foreground border-b border-border">
+              <tr>
+                <th className="p-3 font-medium">Asset</th>
+                <th className="p-3 font-medium">Scheduled Date</th>
+                <th className="p-3 font-medium">Status</th>
+                <th className="p-3 font-medium text-right">Scheduled</th>
+                <th className="p-3 font-medium text-right">Posted</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {schedules.length === 0 ? (
+                <tr><td colSpan={5} className="p-10 text-center text-muted-foreground">No depreciation schedules yet. They are generated when assets are capitalised.</td></tr>
+              ) : (
+                schedules.map((s) => (
+                  <tr key={s.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-3 font-medium">{s.asset.assetCode} · {s.asset.name}</td>
+                    <td className="p-3 text-muted-foreground">{s.scheduledDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                    <td className="p-3"><Badge variant={s.status === "POSTED" ? "default" : "secondary"}>{s.status}</Badge></td>
+                    <td className="p-3 text-right tabular-nums">{formatINR(s.scheduledAmount.toNumber())}</td>
+                    <td className="p-3 text-right tabular-nums">{formatINR(s.postedAmount.toNumber())}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
     </WorkspaceLayout>
-  )
+  );
 }

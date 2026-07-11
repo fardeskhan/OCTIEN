@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
@@ -8,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 export async function createGoodsReceiptRequest(formData: FormData) {
-  const { currentBusinessId, session } = await requireBusinessContext();
+  const { currentBusinessId, session, tenantId } = await requireBusinessContext();
   await requirePermission("purchase_order.update"); // Procurement initiates GR
 
   const poId = formData.get("poId") as string;
@@ -31,8 +30,8 @@ export async function createGoodsReceiptRequest(formData: FormData) {
       poId,
       warehouseId,
       status: "REQUESTED",
-      createdBy: session.userId,
-      updatedBy: session.userId,
+      createdBy: session.user.id,
+      updatedBy: session.user.id,
       lines: {
         create: lines.map(line => ({
           poLineId: line.poLineId,
@@ -51,7 +50,7 @@ export async function createGoodsReceiptRequest(formData: FormData) {
       aggregateId: gr.id,
       aggregateVersion: 1,
       businessId: currentBusinessId,
-      tenantId: session.tenantId || "SYSTEM",
+      tenantId: tenantId || "SYSTEM",
       occurredAt: new Date(),
       payload: { grId: gr.id, poId },
       status: "PENDING"
@@ -61,7 +60,7 @@ export async function createGoodsReceiptRequest(formData: FormData) {
   // Instead of updating inventory here (which is FORBIDDEN), this GR request
   // signals the Inventory app to create a physical receiving task.
 
-  revalidatePath("/dashboard/procurement/receipts");
+  revalidatePath("/operations/procurement/receipts");
   await processOutboxBatch();
-  redirect(`/dashboard/procurement/receipts/${gr.id}`);
+  redirect(`/operations/procurement/receipts/${gr.id}`);
 }

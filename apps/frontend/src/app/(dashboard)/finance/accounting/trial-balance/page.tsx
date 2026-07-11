@@ -1,75 +1,78 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { TrialBalanceEntry } from "@/types"
-import { mockTrialBalance } from "@/app/(dashboard)/_data/finance"
+export const dynamic = "force-dynamic";
 
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { FinancialReportingService } from "@/lib/finance/financial-reporting";
+import { getCurrentPeriod } from "@/lib/finance/period";
+import { formatINR } from "@/lib/currency";
+import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { PrintButton } from "@/components/finance/print-button";
 
+export default async function TrialBalancePage() {
+  const { currentBusinessId: businessId, userId } = await requireBusinessContext();
+  await requirePermission("finance.read");
 
-export default function TrialBalancePage() {
-  const columns: ColumnDef<TrialBalanceEntry>[] = [
-    {
-      accessorKey: "account",
-      header: "Account Code",
-      cell: ({ row }) => <span className="font-medium text-primary cursor-pointer hover:underline">{row.getValue("account")}</span>
-    },
-    {
-      accessorKey: "name",
-      header: "Account Name",
-    },
-    {
-      accessorKey: "type",
-      header: "Type",
-    },
-    {
-      accessorKey: "debit",
-      header: () => <div className="text-right">Debit Balance</div>,
-      cell: ({ row }) => {
-        const val = row.getValue("debit") as number | null
-        return <div className="text-right tabular-nums">{val !== null ? `$${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "-"}</div>
-      },
-    },
-    {
-      accessorKey: "credit",
-      header: () => <div className="text-right">Credit Balance</div>,
-      cell: ({ row }) => {
-        const val = row.getValue("credit") as number | null
-        return <div className="text-right tabular-nums">{val !== null ? `$${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "-"}</div>
-      },
-    },
-  ]
+  const period = await getCurrentPeriod(businessId);
+  const tb = await FinancialReportingService.getTrialBalance(businessId, userId, period.startDate, period.endDate);
 
-  const totalDebit = mockTrialBalance.reduce((acc, curr) => acc + (curr.debit || 0), 0)
-  const totalCredit = mockTrialBalance.reduce((acc, curr) => acc + (curr.credit || 0), 0)
+  const split = (r: (typeof tb.rows)[number]) => {
+    const isDebit = r.normalBalance === "DEBIT";
+    const bal = r.closingBalance;
+    return {
+      debit: isDebit ? Math.max(bal, 0) : Math.max(-bal, 0),
+      credit: isDebit ? Math.max(-bal, 0) : Math.max(bal, 0),
+    };
+  };
 
   return (
     <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Trial Balance" 
-        description="Verify the mathematical accuracy of the double-entry accounting system."
-        actions={<Button variant="outline">Run Report</Button>}
+      <WorkspaceHeader
+        title="Trial Balance"
+        description={`All ledger accounts for ${period.name} — computed live from journal lines.`}
+        actions={
+          <div className="flex items-center gap-3">
+            <Badge variant={tb.isValid ? "default" : "destructive"}>{tb.isValid ? "Balanced" : "Out of balance"}</Badge>
+            <PrintButton />
+          </div>
+        }
       />
-      
-      <FilterBar 
-        placeholder="Search accounts..." 
-        views={["As of Today", "End of Last Month", "Year to Date"]}
-      />
-
-      <div className="flex-1 overflow-hidden mt-4 flex flex-col">
-        <DataTable 
-          columns={columns} 
-          data={mockTrialBalance} 
-        />
-        <div className="mt-4 p-4 border border-border bg-muted/20 rounded-md grid grid-cols-5 font-semibold">
-           <div className="col-span-3 text-right">Totals:</div>
-           <div className="text-right tabular-nums">${totalDebit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-           <div className="text-right tabular-nums">${totalCredit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-        </div>
-      </div>
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/40 text-muted-foreground border-b border-border">
+              <tr>
+                <th className="p-3 font-medium">Code</th>
+                <th className="p-3 font-medium">Account</th>
+                <th className="p-3 font-medium">Type</th>
+                <th className="p-3 font-medium text-right">Debit</th>
+                <th className="p-3 font-medium text-right">Credit</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {tb.rows.map((r) => {
+                const s = split(r);
+                return (
+                  <tr key={r.accountId} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-3 font-mono text-xs">{r.accountCode}</td>
+                    <td className="p-3">{r.accountName}</td>
+                    <td className="p-3 text-muted-foreground text-xs">{r.accountType}</td>
+                    <td className="p-3 text-right tabular-nums">{s.debit ? formatINR(s.debit) : "—"}</td>
+                    <td className="p-3 text-right tabular-nums">{s.credit ? formatINR(s.credit) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot className="border-t-2 border-border font-semibold">
+              <tr>
+                <td className="p-3" colSpan={3}>Total</td>
+                <td className="p-3 text-right tabular-nums">{formatINR(tb.totalDebitNormal)}</td>
+                <td className="p-3 text-right tabular-nums">{formatINR(tb.totalCreditNormal)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </CardContent>
+      </Card>
     </WorkspaceLayout>
-  )
+  );
 }

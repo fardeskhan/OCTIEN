@@ -1,21 +1,17 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
 import { withActiveRecords } from "@/lib/db-helpers";
-import { cookies } from "next/headers";
 
-function getBusinessId() {
-  const cookieStore = cookies();
-  const businessId = cookieStore.get("current_business_id")?.value;
-  if (!businessId) throw new Error("No business context selected");
-  return businessId;
+async function getBusinessId() {
+  const { getActiveBusinessId } = await import("@/lib/server-auth");
+  return getActiveBusinessId();
 }
 
 export async function getExecutiveDashboard() {
-  const businessId = getBusinessId();
-  let projection = await db.executiveDashboardProjection.findUnique({
-    where: withActiveRecords({ businessId })
+  const businessId = await getBusinessId();
+  const projection = await db.executiveDashboardProjection.findUnique({
+    where: { businessId }
   });
 
   if (!projection) {
@@ -34,13 +30,13 @@ export async function getExecutiveDashboard() {
 }
 
 export async function getInventoryReport() {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   // Fetch detailed inventory reporting projection with related warehouse and variant info
   const records = await db.inventoryReportProjection.findMany({
-    where: withActiveRecords({ businessId }),
+    where: { businessId },
     orderBy: { totalValue: "desc" }
   });
-  
+
   // To avoid querying relationships that don't exist directly on the projection in Prisma,
   // we'll fetch master data to enrich the report.
   const variants = await db.productVariant.findMany({
@@ -65,9 +61,9 @@ export async function getInventoryReport() {
 }
 
 export async function getProcurementReport() {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   const records = await db.procurementReportProjection.findMany({
-    where: withActiveRecords({ businessId }),
+    where: { businessId },
     orderBy: { totalSpendYTD: "desc" }
   });
 
@@ -86,11 +82,11 @@ export async function getProcurementReport() {
 
 // Temporary recalculation trigger for V1, mimicking an event listener
 export async function recalculateExecutiveDashboard() {
-  const businessId = getBusinessId();
-  
+  const businessId = await getBusinessId();
+
   // Calculate total inventory value
   const inventoryAgg = await db.inventoryReportProjection.aggregate({
-    where: withActiveRecords({ businessId }),
+    where: { businessId },
     _sum: { totalValue: true }
   });
 
@@ -110,18 +106,21 @@ export async function recalculateExecutiveDashboard() {
     where: { businessId, status: { in: ["REQUESTED", "PROCESSING"] } }
   });
 
+  const totalInventoryVal = inventoryAgg._sum?.totalValue ?? 0;
+  const openPOAmount = openPOs._sum?.totalAmount ?? 0;
+
   await db.executiveDashboardProjection.upsert({
-    where: withActiveRecords({ businessId }),
+    where: { businessId },
     create: {
       businessId,
-      totalInventoryVal: inventoryAgg._sum.totalValue || 0,
-      openPOAmount: openPOs._sum.totalAmount || 0,
+      totalInventoryVal,
+      openPOAmount,
       activeSuppliers: suppliersCount,
       pendingReceipts: receiptsCount,
     },
     update: {
-      totalInventoryVal: inventoryAgg._sum.totalValue || 0,
-      openPOAmount: openPOs._sum.totalAmount || 0,
+      totalInventoryVal,
+      openPOAmount,
       activeSuppliers: suppliersCount,
       pendingReceipts: receiptsCount,
     }

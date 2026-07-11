@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { db } from "@/lib/db";
 import { requireBusinessContext } from "@/lib/server-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,11 +6,12 @@ import { updateRequisitionStatus } from "@/app/actions/requisition";
 import Link from "next/link";
 import { ArrowLeft, Check, X } from "lucide-react";
 
-export default async function RequisitionDetailsPage({ params }: { params: { id: string } }) {
+export default async function RequisitionDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const { currentBusinessId } = await requireBusinessContext();
 
   const pr = await db.purchaseRequisition.findUnique({
-    where: { id: params.id, businessId: currentBusinessId },
+    where: { id, businessId: currentBusinessId },
     include: {
       lines: {
         include: {

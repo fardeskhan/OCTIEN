@@ -1,78 +1,60 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { ApprovalDrawer } from "@/components/governance/approval-drawer"
-import { ApprovalRequest } from "@/types"
-import { mockPending } from "@/app/(dashboard)/_data/governance"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
-export default function PendingApprovalsPage() {
-  const [selectedRequest, setSelectedRequest] = React.useState<ApprovalRequest | null>(null)
+export default async function PendingApprovalsPage() {
+  const { tenantId } = await requireBusinessContext();
+  await requirePermission("governance.read");
 
-  const columns: ColumnDef<ApprovalRequest>[] = [
-    {
-      accessorKey: "id",
-      header: "Request ID",
-      cell: ({ row }) => (
-        <span 
-          className="font-medium text-primary hover:underline cursor-pointer"
-          onClick={() => setSelectedRequest(row.original)}
-        >
-          {row.getValue("id")}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "type",
-      header: "Type",
-    },
-    {
-      accessorKey: "requester",
-      header: "Requester",
-    },
-    {
-      accessorKey: "approversRemaining",
-      header: "Pending With",
-      cell: ({ row }) => <span className="text-muted-foreground">{row.getValue("approversRemaining")} Approver(s)</span>
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => (
-        <div className="flex justify-end gap-2">
-          <Button size="sm" variant="ghost">Remind Approvers</Button>
-        </div>
-      )
-    }
-  ]
+  const requests = await db.approvalRequest.findMany({
+    where: { tenantId },
+    include: { actions: { orderBy: { createdAt: "desc" }, take: 1 } },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+
+  const pending = requests.filter((r) => r.status === "PENDING");
 
   return (
     <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Pending Approvals" 
-        description="Requests you submitted that are awaiting authorization."
-        actions={<Button>New Request</Button>}
+      <WorkspaceHeader
+        title="Approvals"
+        description={`${pending.length} pending approval request${pending.length === 1 ? "" : "s"} in this tenant.`}
       />
-      
-      <FilterBar 
-        placeholder="Search requests..." 
-        views={["All Pending", "Overdue"]}
-      />
-
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockPending} 
-        />
-      </div>
-
-      <ApprovalDrawer 
-        request={selectedRequest}
-        onClose={() => setSelectedRequest(null)}
-      />
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/40 text-muted-foreground border-b border-border">
+              <tr>
+                <th className="p-3 font-medium">Requested</th>
+                <th className="p-3 font-medium">Type</th>
+                <th className="p-3 font-medium">Reference</th>
+                <th className="p-3 font-medium">Status</th>
+                <th className="p-3 font-medium">Last Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {requests.length === 0 ? (
+                <tr><td colSpan={5} className="p-10 text-center text-muted-foreground">No approval requests yet. Documents routed for approval (POs, journals, invoices) appear here.</td></tr>
+              ) : (
+                requests.map((r) => (
+                  <tr key={r.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-3 whitespace-nowrap text-muted-foreground">{r.createdAt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                    <td className="p-3 font-mono text-xs">{r.sourceType.replace(/_/g, " ")}</td>
+                    <td className="p-3 font-mono text-xs">{r.sourceId.slice(0, 12)}…</td>
+                    <td className="p-3"><Badge variant={r.status === "PENDING" ? "warning" : r.status === "APPROVED" ? "default" : "destructive"}>{r.status}</Badge></td>
+                    <td className="p-3 text-muted-foreground">{r.actions[0] ? `${r.actions[0].actionType} · ${r.actions[0].createdAt.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}` : "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
     </WorkspaceLayout>
-  )
+  );
 }

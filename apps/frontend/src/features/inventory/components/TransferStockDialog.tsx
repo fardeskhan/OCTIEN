@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -18,7 +17,7 @@ const transferStockSchema = z.object({
   sourceWarehouseId: z.string().min(1, 'Source Warehouse is required'),
   destinationWarehouseId: z.string().min(1, 'Destination Warehouse is required'),
   batchId: z.string().min(1, 'Batch ID is required'),
-  quantity: z.coerce.number().positive('Quantity must be positive'),
+  quantity: z.number().positive('Quantity must be positive'),
 });
 
 type TransferFormValues = z.infer<typeof transferStockSchema>;
@@ -61,7 +60,7 @@ export function TransferStockDialog({ trigger, defaultProductId = '' }: { trigge
             </div>
             <div className="grid grid-cols-2 gap-4">
                <FormField control={form.control} name="batchId" render={({ field }: any) => (<FormItem><FormLabel>Batch ID</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-               <FormField control={form.control} name="quantity" render={({ field }: any) => (<FormItem><FormLabel>Quantity</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
+               <FormField control={form.control} name="quantity" render={({ field }) => (<FormItem><FormLabel>Quantity</FormLabel><FormControl><Input type="number" {...field} onChange={(e) => field.onChange(e.target.valueAsNumber)} /></FormControl><FormMessage /></FormItem>)} />
             </div>
             <div className="flex justify-end gap-3 pt-4 border-t border-border mt-6">
               <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>Cancel</Button>

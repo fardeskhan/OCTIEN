@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useInventoryTimeline } from '@/features/inventory/queries/getTimeline';

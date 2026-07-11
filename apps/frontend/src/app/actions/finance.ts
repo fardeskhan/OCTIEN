@@ -1,15 +1,13 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
-import { requireBusinessContext } from "@/lib/auth/context";
-import { requirePermission } from "@/lib/auth/rbac";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
 import { processOutboxBatch } from "@/lib/outbox";
 import { Prisma } from "@prisma/client";
 
 export async function recordCustomerPayment(invoiceId: string, amount: number, reference?: string) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "finance.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("finance.write");
 
   return db.$transaction(async (tx) => {
     const invoice = await tx.customerInvoice.findUnique({
@@ -105,8 +103,8 @@ export async function recordCustomerPayment(invoiceId: string, amount: number, r
 }
 
 export async function recordSupplierPayment(billId: string, amount: number, reference?: string) {
-  const { businessId, tenantId, userId } = await requireBusinessContext();
-  await requirePermission(userId, tenantId, "finance.write");
+  const { currentBusinessId: businessId, tenantId, userId } = await requireBusinessContext();
+  await requirePermission("finance.write");
 
   return db.$transaction(async (tx) => {
     const bill = await tx.supplierBill.findUnique({

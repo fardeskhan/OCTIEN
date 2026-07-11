@@ -1,22 +1,22 @@
-// @ts-nocheck
 import { db } from "@/lib/db";
 import { requireBusinessContext } from "@/lib/server-auth";
 import { NewReceiptForm } from "@/components/procurement/new-receipt-form";
 import { redirect } from "next/navigation";
 
-export default async function NewReceiptPage({ searchParams }: { searchParams: { poId: string } }) {
+export default async function NewReceiptPage({ searchParams }: { searchParams: Promise<{ poId: string }> }) {
+  const { poId } = await searchParams;
   const { currentBusinessId } = await requireBusinessContext();
 
-  if (!searchParams.poId) redirect("/dashboard/operations/procurement/orders");
+  if (!poId) redirect("/operations/procurement/orders");
 
   const po = await db.purchaseOrder.findUnique({
-    where: { id: searchParams.poId, businessId: currentBusinessId },
+    where: { id: poId, businessId: currentBusinessId },
     include: {
       lines: { include: { variant: { include: { product: true } } } }
     }
   });
 
-  if (!po) redirect("/dashboard/operations/procurement/orders");
+  if (!po) redirect("/operations/procurement/orders");
 
   const warehouses = await db.warehouse.findMany({
     where: { businessId: currentBusinessId, deletedAt: null },

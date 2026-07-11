@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
@@ -30,13 +29,13 @@ export async function createSupplier(formData: FormData) {
       status: status || "PROSPECT",
       riskLevel: riskLevel || "LOW",
       paymentTerms,
-      createdBy: session.userId,
-      updatedBy: session.userId,
+      createdBy: session.user.id,
+      updatedBy: session.user.id,
     }
   });
 
-  revalidatePath("/dashboard/procurement/suppliers");
-  redirect(`/dashboard/procurement/suppliers/${supplier.id}`);
+  revalidatePath("/operations/procurement/suppliers");
+  redirect(`/operations/procurement/suppliers/${supplier.id}`);
 }
 
 export async function addSupplierContact(formData: FormData) {
@@ -72,6 +71,6 @@ export async function addSupplierContact(formData: FormData) {
     }
   });
 
-  revalidatePath(`/dashboard/procurement/suppliers/${supplierId}`);
+  revalidatePath(`/operations/procurement/suppliers/${supplierId}`);
   return { success: true };
 }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState } from 'react';
 import { WorkspaceShell } from '../../../shared/components/WorkspaceShell';
 import { salesWorkspaceTabs } from '../workspaceTabs';

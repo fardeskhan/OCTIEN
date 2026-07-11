@@ -1,5 +1,4 @@
 export const dynamic = 'force-dynamic';
-// @ts-nocheck
 import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
@@ -60,15 +59,15 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-zinc-950">
+    <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar userPermissions={permissions} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar 
-          user={session.user} 
-          businesses={businesses} 
-          currentBusinessId={currentBusinessId} 
+        <Topbar
+          user={session.user}
+          businesses={businesses}
+          currentBusinessId={currentBusinessId}
         />
-        <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-zinc-950 p-6">
+        <main className="flex-1 overflow-y-auto bg-muted/30 p-6">
           {children}
         </main>
       </div>

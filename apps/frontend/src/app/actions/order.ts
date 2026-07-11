@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
@@ -48,22 +47,22 @@ export async function createPurchaseOrder(formData: FormData) {
       totalAmount,
       status: "DRAFT",
       expectedAt: expectedAtStr ? new Date(expectedAtStr) : null,
-      createdBy: session.userId,
-      updatedBy: session.userId,
+      createdBy: session.user.id,
+      updatedBy: session.user.id,
       lines: {
         create: poLinesData
       }
     }
   });
 
-  revalidatePath("/dashboard/procurement/orders");
+  revalidatePath("/operations/procurement/orders");
   await processOutboxBatch();
-  redirect(`/dashboard/procurement/orders/${po.id}`);
+  redirect(`/operations/procurement/orders/${po.id}`);
 }
 
 export async function updatePurchaseOrderStatus(id: string, status: POStatus) {
-  const { currentBusinessId, session } = await requireBusinessContext();
-  
+  const { currentBusinessId, session, tenantId } = await requireBusinessContext();
+
   if (status === "APPROVED") {
     // Insert into Outbox
     await db.outboxEventRecord.create({
@@ -73,7 +72,7 @@ export async function updatePurchaseOrderStatus(id: string, status: POStatus) {
         aggregateId: id,
         aggregateVersion: 1,
         businessId: currentBusinessId,
-        tenantId: session.tenantId || "SYSTEM",
+        tenantId: tenantId || "SYSTEM",
         occurredAt: new Date(),
         payload: { poId: id, status: "APPROVED" },
         status: "PENDING"
@@ -90,11 +89,11 @@ export async function updatePurchaseOrderStatus(id: string, status: POStatus) {
 
   const updateData: any = {
     status,
-    updatedBy: session.userId,
+    updatedBy: session.user.id,
   };
 
   if (status === "APPROVED") {
-    updateData.approvedBy = session.userId;
+    updateData.approvedBy = session.user.id;
     updateData.approvedAt = new Date();
   }
 
@@ -108,8 +107,8 @@ export async function updatePurchaseOrderStatus(id: string, status: POStatus) {
     data: updateData
   });
 
-  revalidatePath(`/dashboard/procurement/orders/${id}`);
-  revalidatePath("/dashboard/procurement/orders");
+  revalidatePath(`/operations/procurement/orders/${id}`);
+  revalidatePath("/operations/procurement/orders");
   await processOutboxBatch();
   return { success: true };
 }

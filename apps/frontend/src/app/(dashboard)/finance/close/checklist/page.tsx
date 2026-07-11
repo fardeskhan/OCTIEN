@@ -1,124 +1,72 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader, WorkspaceKPIs } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { KPICard } from "@/components/ui/kpi-card"
-import { Checkbox } from "@/components/ui/checkbox"
-import { CloseTask } from "@/types"
-import { mockCloseTasks } from "@/app/(dashboard)/_data/finance"
+export const dynamic = "force-dynamic";
 
+import { CheckCircle2, XCircle, Circle } from "lucide-react";
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { FinancialReportingService } from "@/lib/finance/financial-reporting";
+import { getCurrentPeriod } from "@/lib/finance/period";
+import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout";
+import { KPICard } from "@/components/ui/kpi-card";
+import { Card, CardContent } from "@/components/ui/card";
 
+export default async function CloseChecklistPage() {
+  const { currentBusinessId: businessId, userId } = await requireBusinessContext();
+  await requirePermission("finance.read");
 
-export default function CloseChecklistPage() {
-  const columns: ColumnDef<CloseTask>[] = [
-    {
-      id: "select",
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected()}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
-        />
-      ),
-      enableSorting: false,
-      enableHiding: false,
-    },
-    {
-      accessorKey: "category",
-      header: "Category",
-    },
-    {
-      accessorKey: "task",
-      header: "Task Description",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          {row.original.critical && <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4">CRITICAL</Badge>}
-          <span className="font-medium">{row.getValue("task")}</span>
-        </div>
-      )
-    },
-    {
-      accessorKey: "assignedTo",
-      header: "Assigned To",
-    },
-    {
-      accessorKey: "dueDate",
-      header: "Due Date",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as string
-        if (status === "Completed") return <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">Completed</Badge>
-        if (status === "Blocked") return <Badge variant="destructive">Blocked</Badge>
-        if (status === "In Progress") return <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-blue-200">In Progress</Badge>
-        return <Badge variant="outline" className="text-muted-foreground">Not Started</Badge>
-      }
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => {
-        return (
-          <div className="flex justify-end">
-            <Button size="sm" variant="ghost">Update Status</Button>
-          </div>
-        )
-      }
-    }
-  ]
+  const period = await getCurrentPeriod(businessId);
+  const [tb, journalCount, invoices, receivables, bills, payables, accounts, cashTx] = await Promise.all([
+    FinancialReportingService.getTrialBalance(businessId, userId, period.startDate, period.endDate),
+    db.journalEntry.count({ where: { businessId } }),
+    db.customerInvoice.findMany({ where: { businessId, deletedAt: null }, select: { remainingAmount: true } }),
+    db.receivableEntry.findMany({ where: { businessId }, select: { amount: true, paidAmount: true } }),
+    db.supplierBill.findMany({ where: { businessId, deletedAt: null }, select: { remainingAmount: true } }),
+    db.payableEntry.findMany({ where: { businessId }, select: { amount: true, paidAmount: true } }),
+    db.bankAccount.findMany({ where: { businessId }, select: { openingBalance: true } }),
+    db.cashTransaction.findMany({ where: { businessId }, select: { type: true, amount: true } }),
+  ]);
 
-  const completed = mockCloseTasks.filter(t => t.status === "Completed").length
-  const total = mockCloseTasks.length
-  const progress = Math.round((completed / total) * 100)
+  const arInvoices = invoices.reduce((s, i) => s + i.remainingAmount.toNumber(), 0);
+  const arEntries = receivables.reduce((s, r) => s + (r.amount.toNumber() - r.paidAmount.toNumber()), 0);
+  const apBills = bills.reduce((s, b) => s + b.remainingAmount.toNumber(), 0);
+  const apEntries = payables.reduce((s, p) => s + (p.amount.toNumber() - p.paidAmount.toNumber()), 0);
+  const bankCash = accounts.reduce((s, a) => s + a.openingBalance.toNumber(), 0);
+  const ledgerCash = cashTx.reduce((s, t) => s + (t.type === "CASH_IN" ? t.amount.toNumber() : -t.amount.toNumber()), 0);
+
+  const checks = [
+    { label: "Accounting period is open", ok: period.status === "OPEN" },
+    { label: "Journal entries posted", ok: journalCount > 0, detail: `${journalCount} entries` },
+    { label: "Trial balance is balanced", ok: tb.isValid },
+    { label: "Receivables ledger reconciles to invoices", ok: Math.abs(arInvoices - arEntries) < 1 },
+    { label: "Payables ledger reconciles to bills", ok: Math.abs(apBills - apEntries) < 1 },
+    { label: "Cash ledger reconciles to bank position", ok: Math.abs(bankCash - ledgerCash) < 1 },
+  ];
+  const done = checks.filter((c) => c.ok).length;
+  const pct = Math.round((done / checks.length) * 100);
 
   return (
     <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="June 2026 Close Checklist" 
-        description="Track progress and dependencies for the active period close."
-        actions={<Button>Close Period</Button>}
-      />
+      <WorkspaceHeader title="Period Close Checklist" description={`Month-end readiness for ${period.name} — checks computed live from the ledger.`} />
 
-      <WorkspaceKPIs>
-        <KPICard title="Overall Progress" value={`${progress}%`} />
-        <KPICard title="Completed Tasks" value={`${completed} / ${total}`} />
-        <KPICard title="Blocked Tasks" value="1" />
-        <KPICard title="Days Until Deadline" value="2 Days" />
-      </WorkspaceKPIs>
-      
-      <div className="mt-4 mb-2">
-         <div className="flex items-center justify-between text-sm mb-1">
-            <span className="font-medium">Close Readiness</span>
-            <span className="font-bold">{progress}%</span>
-         </div>
-         <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-            <div className="bg-primary h-full transition-all" style={{ width: `${progress}%` }} />
-         </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <KPICard title="Checks Passed" value={`${done}/${checks.length}`} freshness="Live" />
+        <KPICard title="Readiness" value={`${pct}%`} variant={pct === 100 ? "success" : "warning"} freshness="Live" />
+        <KPICard title="Period" value={period.name} freshness="Live" />
       </div>
 
-      <FilterBar 
-        placeholder="Search tasks..." 
-        views={["My Tasks", "All Open Tasks", "Critical Path", "Blocked"]}
-      />
-
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockCloseTasks} 
-        />
-      </div>
+      <Card>
+        <CardContent className="divide-y divide-border p-0">
+          {checks.map((c) => (
+            <div key={c.label} className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                {c.ok ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : <XCircle className="h-5 w-5 text-rose-500" />}
+                <span className="text-sm">{c.label}</span>
+              </div>
+              <span className="text-xs text-muted-foreground">{c.detail ?? (c.ok ? "Reconciled" : "Needs attention")}</span>
+            </div>
+          ))}
+          {checks.length === 0 && <div className="flex items-center gap-2 p-4 text-muted-foreground"><Circle className="h-4 w-4" /> No checks.</div>}
+        </CardContent>
+      </Card>
     </WorkspaceLayout>
-  )
+  );
 }

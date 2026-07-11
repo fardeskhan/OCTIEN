@@ -1,19 +1,15 @@
-// @ts-nocheck
 import Link from "next/link";
 import { Suspense } from "react";
 import { db } from "@/lib/db";
-import { cookies } from "next/headers";
+import { getActiveBusinessId } from "@/lib/server-auth";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
-function getBusinessId() {
-  const cookieStore = cookies();
-  const businessId = cookieStore.get("current_business_id")?.value;
-  if (!businessId) throw new Error("No business context selected");
-  return businessId;
+async function getBusinessId() {
+  return getActiveBusinessId();
 }
 
 async function SalesDashboardData() {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   
   // Real-time queries for V1
   const openOrdersCount = await db.salesOrder.count({

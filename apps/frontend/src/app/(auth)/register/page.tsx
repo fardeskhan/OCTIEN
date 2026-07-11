@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useState } from "react";
@@ -26,7 +25,7 @@ export default function RegisterPage() {
       fetchOptions: {
         onSuccess: () => {
           toast.success("Account created successfully");
-          router.push("/dashboard");
+          router.push("/");
         },
         onError: (ctx) => {
           toast.error(ctx.error.message);

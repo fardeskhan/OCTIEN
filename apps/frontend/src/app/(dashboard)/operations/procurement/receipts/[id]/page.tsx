@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { db } from "@/lib/db";
 import { requireBusinessContext } from "@/lib/server-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,11 +5,12 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 
-export default async function ReceiptDetailsPage({ params }: { params: { id: string } }) {
+export default async function ReceiptDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const { currentBusinessId } = await requireBusinessContext();
 
   const gr = await db.goodsReceiptRequest.findUnique({
-    where: { id: params.id, businessId: currentBusinessId },
+    where: { id, businessId: currentBusinessId },
     include: {
       purchaseOrder: { include: { supplier: true } },
       lines: {

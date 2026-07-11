@@ -1,73 +1,85 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader, WorkspaceKPIs } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { KPICard } from "@/components/ui/kpi-card"
-import { Valuation } from "@/types"
-import { mockValuations } from "@/app/(dashboard)/_data/inventory"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { formatINR } from "@/lib/currency";
+import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout";
+import { KPICard } from "@/components/ui/kpi-card";
+import { Card, CardContent } from "@/components/ui/card";
 
+export default async function InventoryValuationPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("inventory.read");
 
-export default function ValuationPage() {
-  const columns: ColumnDef<Valuation>[] = [
-    {
-      accessorKey: "category",
-      header: "Asset Category",
-      cell: ({ row }) => <span className="font-medium">{row.getValue("category")}</span>,
-    },
-    {
-      accessorKey: "totalItems",
-      header: () => <div className="text-right">Total Units</div>,
-      cell: ({ row }) => <div className="text-right">{row.getValue("totalItems")}</div>,
-    },
-    {
-      accessorKey: "avgCost",
-      header: () => <div className="text-right">Avg Unit Cost</div>,
-      cell: ({ row }) => <div className="text-right">${(row.getValue("avgCost") as number).toFixed(2)}</div>,
-    },
-    {
-      accessorKey: "totalValue",
-      header: () => <div className="text-right">Total Asset Value</div>,
-      cell: ({ row }) => <div className="text-right font-medium">${(row.getValue("totalValue") as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>,
-    },
-    {
-      accessorKey: "turnoverRatio",
-      header: () => <div className="text-right">Turnover (Annual)</div>,
-      cell: ({ row }) => <div className="text-right">{row.getValue("turnoverRatio")}x</div>,
-    },
-  ]
+  const [projections, variants, warehouses] = await Promise.all([
+    db.inventoryVariantProjection.findMany({ where: { businessId } }),
+    db.productVariant.findMany({ where: { businessId, deletedAt: null }, select: { id: true, name: true, sku: true } }),
+    db.warehouse.findMany({ where: { businessId }, select: { id: true, name: true } }),
+  ]);
 
-  const totalInventoryValue = mockValuations.reduce((acc, curr) => acc + curr.totalValue, 0)
+  const vName = new Map(variants.map((v) => [v.id, v]));
+  const wName = new Map(warehouses.map((w) => [w.id, w.name]));
+
+  const rows = projections
+    .map((p) => {
+      const value = p.onHandQuantity * p.averageCost.toNumber();
+      return {
+        id: p.id,
+        variant: vName.get(p.variantId)?.name ?? "—",
+        sku: vName.get(p.variantId)?.sku ?? "—",
+        warehouse: wName.get(p.warehouseId) ?? "—",
+        onHand: p.onHandQuantity,
+        avgCost: p.averageCost.toNumber(),
+        value,
+      };
+    })
+    .sort((a, b) => b.value - a.value);
+
+  const totalValue = rows.reduce((s, r) => s + r.value, 0);
+  const totalUnits = rows.reduce((s, r) => s + r.onHand, 0);
 
   return (
     <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Inventory Valuation" 
-        description="Financial perspective of on-hand assets."
-        actions={<Button variant="outline">Run Month-End Snapshot</Button>}
-      />
+      <WorkspaceHeader title="Inventory Valuation" description="On-hand stock valued at average cost." />
 
-      <WorkspaceKPIs>
-        <KPICard title="Total Inventory Value" value={`$${(totalInventoryValue/1000).toFixed(1)}K`} trend={3.2} freshness="Live" />
-        <KPICard title="Avg Turnover Ratio" value="10.3x" trend={-1.5} freshness="Live" />
-        <KPICard title="Categories Tracked" value="14" freshness="Live" />
-        <KPICard title="Obsolete Value (Est)" value="$12.4K" variant="warning" freshness="Live" />
-      </WorkspaceKPIs>
-      
-      <FilterBar 
-        placeholder="Search categories..." 
-        views={["All Categories", "High Value", "Slow Moving"]}
-      />
-
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockValuations} 
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <KPICard title="Total Inventory Value" value={formatINR(totalValue)} freshness="Live" />
+        <KPICard title="SKUs On Hand" value={rows.length} freshness="Live" />
+        <KPICard title="Total Units" value={Math.round(totalUnits).toLocaleString("en-IN")} freshness="Live" />
       </div>
+
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/40 text-muted-foreground border-b border-border">
+              <tr>
+                <th className="p-3 font-medium">SKU</th>
+                <th className="p-3 font-medium">Product</th>
+                <th className="p-3 font-medium">Warehouse</th>
+                <th className="p-3 font-medium text-right">On Hand</th>
+                <th className="p-3 font-medium text-right">Avg Cost</th>
+                <th className="p-3 font-medium text-right">Value</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.length === 0 ? (
+                <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No stock on hand.</td></tr>
+              ) : (
+                rows.map((r) => (
+                  <tr key={r.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-3 font-mono text-xs">{r.sku}</td>
+                    <td className="p-3">{r.variant}</td>
+                    <td className="p-3 text-muted-foreground">{r.warehouse}</td>
+                    <td className="p-3 text-right tabular-nums">{Math.round(r.onHand).toLocaleString("en-IN")}</td>
+                    <td className="p-3 text-right tabular-nums">{formatINR(r.avgCost)}</td>
+                    <td className="p-3 text-right tabular-nums font-medium">{formatINR(r.value)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
     </WorkspaceLayout>
-  )
+  );
 }

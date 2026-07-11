@@ -1,20 +1,15 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
-import { withActiveRecords } from "@/lib/db-helpers";
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 
-function getBusinessId() {
-  const cookieStore = cookies();
-  const businessId = cookieStore.get("current_business_id")?.value;
-  if (!businessId) throw new Error("No business context selected");
-  return businessId;
+async function getBusinessId() {
+  const { getActiveBusinessId } = await import("@/lib/server-auth");
+  return getActiveBusinessId();
 }
 
 async function generateQuotationCode(businessId: string): Promise<string> {
-  const count = await db.quotation.count({ where: withActiveRecords({ businessId }) });
+  const count = await db.quotation.count({ where: { businessId } });
   return `QT-${String(count + 1).padStart(5, "0")}`;
 }
 
@@ -23,7 +18,7 @@ export async function createQuotation(data: {
   validUntil?: Date;
   lines: { variantId: string; quantity: number; unitPrice: number }[];
 }) {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   const code = await generateQuotationCode(businessId);
 
   // Get business to get default currency
@@ -59,15 +54,15 @@ export async function createQuotation(data: {
     }
   });
 
-  revalidatePath("/dashboard/sales/quotations");
+  revalidatePath("/sales/quotations");
   return quote;
 }
 
 export async function updateQuotationStatus(id: string, status: "DRAFT" | "SENT" | "ACCEPTED" | "REJECTED" | "EXPIRED") {
-  const businessId = getBusinessId();
-  
+  const businessId = await getBusinessId();
+
   const quote = await db.quotation.update({
-    where: withActiveRecords({ id, businessId }),
+    where: { id, businessId },
     data: { status }
   });
 
@@ -77,14 +72,14 @@ export async function updateQuotationStatus(id: string, status: "DRAFT" | "SENT"
     // For V1 MVP logic, this is just a status update
   }
 
-  revalidatePath("/dashboard/sales/quotations");
+  revalidatePath("/sales/quotations");
   return quote;
 }
 
 export async function getQuotations() {
-  const businessId = getBusinessId();
+  const businessId = await getBusinessId();
   return db.quotation.findMany({
-    where: withActiveRecords({ businessId }),
+    where: { businessId },
     include: {
       customer: true,
       lines: {

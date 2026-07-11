@@ -1,154 +1,97 @@
-// @ts-nocheck
-'use client';
+export const dynamic = "force-dynamic";
 
-import { useInventoryProduct } from '@/features/inventory/queries/getProduct';
-import { use } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, PackagePlus, ArrowRightLeft, Lock, FileClock, Warehouse, Hash } from 'lucide-react';
-import Link from 'next/link';
-import { Skeleton } from '@/components/ui/skeleton';
-import { ReceiveStockDialog } from '@/features/inventory/components/ReceiveStockDialog';
-import { ReserveStockDialog } from '@/features/inventory/components/ReserveStockDialog';
-import { TransferStockDialog } from '@/features/inventory/components/TransferStockDialog';
-import { AdjustStockDialog } from '@/features/inventory/components/AdjustStockDialog';
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ArrowLeft, Layers } from "lucide-react";
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { formatINR } from "@/lib/currency";
+import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout";
+import { KPICard } from "@/components/ui/kpi-card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 
-export default function ProductWorkspacePage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const { data: product, isLoading } = useInventoryProduct('bus_aeterex_001', resolvedParams.id);
+const STATUS_LABEL: Record<string, string> = { ACTIVE: "Active", INACTIVE: "Inactive", DISCONTINUED: "Discontinued" };
 
-  if (isLoading) {
-    return <div className="space-y-6"><Skeleton className="h-12 w-64" /><Skeleton className="h-96 w-full" /></div>;
-  }
+export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("inventory.read");
 
-  if (!product) return <div>Product not found</div>;
+  const product = await db.product.findFirst({
+    where: { id, businessId, deletedAt: null },
+    include: {
+      category: { select: { name: true } },
+      variants: { where: { deletedAt: null }, include: { unit: { select: { symbol: true } } }, orderBy: { createdAt: "asc" } },
+    },
+  });
+  if (!product) notFound();
+
+  const projections = await db.inventoryVariantProjection.findMany({
+    where: { businessId, variantId: { in: product.variants.map((v) => v.id) } },
+  });
+  const stockByVariant = new Map<string, number>();
+  for (const p of projections) stockByVariant.set(p.variantId, (stockByVariant.get(p.variantId) ?? 0) + p.onHandQuantity);
+  const totalStock = product.variants.reduce((s, v) => s + (stockByVariant.get(v.id) ?? 0), 0);
+  const invValue = projections.reduce((s, p) => s + p.onHandQuantity * p.averageCost.toNumber(), 0);
 
   return (
-    <div className="space-y-6">
-      {/* Product Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div>
-          <Link href="/inventory" className="text-sm font-medium text-muted-foreground hover:text-foreground flex items-center mb-4 transition-colors">
-            <ArrowLeft className="w-4 h-4 mr-1" /> Back to Products
-          </Link>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">{product.name}</h1>
-            {product.status === 'ACTIVE' && <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-600">Active</Badge>}
-            {product.status === 'LOW_STOCK' && <Badge variant="outline" className="text-amber-600 border-amber-500/50">Low Stock</Badge>}
+    <WorkspaceLayout>
+      <WorkspaceHeader
+        title={product.name}
+        description={product.description ?? (product.category ? product.category.name : "Product")}
+        actions={
+          <div className="flex items-center gap-2">
+            <Link href={`/inventory/products/${product.id}/variants`} className={buttonVariants()}>
+              <Layers className="h-4 w-4" /> Manage Variants
+            </Link>
+            <Link href="/inventory/products" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+              <ArrowLeft className="h-4 w-4" /> Products
+            </Link>
           </div>
-          <p className="text-muted-foreground mt-1 font-mono text-sm">{product.sku}</p>
-        </div>
+        }
+      />
 
-        {/* Workspace Quick Actions */}
-        <div className="flex gap-2">
-           <ReceiveStockDialog defaultProductId={product.id} trigger={<Button><PackagePlus className="w-4 h-4 mr-2 hidden sm:block" /> Receive</Button>} />
-           <ReserveStockDialog defaultProductId={product.id} trigger={<Button variant="outline"><Lock className="w-4 h-4 mr-2 hidden sm:block" /> Reserve</Button>} />
-           <TransferStockDialog defaultProductId={product.id} trigger={<Button variant="outline"><ArrowRightLeft className="w-4 h-4 mr-2 hidden sm:block" /> Transfer</Button>} />
-        </div>
+      <div className="flex items-center gap-3">
+        <Badge variant={product.status === "ACTIVE" ? "default" : "secondary"}>{STATUS_LABEL[product.status] ?? product.status}</Badge>
+        <span className="text-sm text-muted-foreground">{product.type}</span>
+        {product.category && <span className="text-sm text-muted-foreground">· {product.category.name}</span>}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-12">
-        {/* Left Column */}
-        <div className="md:col-span-4 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Details</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <div className="text-sm font-medium text-muted-foreground">Category</div>
-                <div className="font-medium">{product.category}</div>
-              </div>
-              <div>
-                <div className="text-sm font-medium text-muted-foreground">Description</div>
-                <div className="text-sm mt-1 leading-relaxed">{product.description}</div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-             <CardHeader>
-                <CardTitle className="text-base">Quick Links</CardTitle>
-             </CardHeader>
-             <CardContent className="space-y-2">
-                <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-foreground"><FileClock className="w-4 h-4 mr-3" /> Full Timeline</Button>
-                <AdjustStockDialog defaultProductId={product.id} trigger={<Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-foreground"><Hash className="w-4 h-4 mr-3" /> Adjust Stock</Button>} />
-             </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Column */}
-        <div className="md:col-span-8 space-y-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-base">Current Stock Overview</CardTitle>
-              <Warehouse className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div>
-                  <div className="text-3xl font-bold text-foreground">{product.totalAvailable.toLocaleString()}</div>
-                  <div className="text-sm font-medium text-muted-foreground mt-1">Available</div>
-                </div>
-                <div>
-                  <div className="text-3xl font-bold text-foreground">{product.totalReserved.toLocaleString()}</div>
-                  <div className="text-sm font-medium text-muted-foreground mt-1">Reserved</div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="text-sm font-semibold">Location Breakdown</div>
-                {product.warehouses.map(w => (
-                  <div key={w.id} className="flex justify-between items-center text-sm p-3 rounded border border-border bg-muted/20">
-                    <span className="font-medium">{w.name}</span>
-                    <div className="flex gap-4">
-                      <span className="text-muted-foreground">Avail: <span className="font-medium text-foreground">{w.available}</span></span>
-                      <span className="text-muted-foreground">Resv: <span className="font-medium text-foreground">{w.reserved}</span></span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             <Card>
-                <CardHeader>
-                   <CardTitle className="text-base">Open Batches</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                   {product.recentBatches.map(b => (
-                      <div key={b.id} className="flex justify-between items-center border-b border-border pb-2 last:border-0">
-                         <div>
-                            <div className="text-sm font-medium">{b.batchNumber}</div>
-                            <div className="text-xs text-muted-foreground">Qty: {b.quantity.toLocaleString()}</div>
-                         </div>
-                         <Badge variant="outline" className="text-[10px]">{b.status}</Badge>
-                      </div>
-                   ))}
-                </CardContent>
-             </Card>
-
-             <Card>
-                <CardHeader>
-                   <CardTitle className="text-base">Recent Movements</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                   {product.recentMovements.map(m => (
-                      <div key={m.id} className="flex justify-between items-center border-b border-border pb-2 last:border-0">
-                         <div>
-                            <div className="text-sm font-medium capitalize">{m.type.toLowerCase()}</div>
-                            <div className="text-xs text-muted-foreground">{new Date(m.date).toLocaleDateString()}</div>
-                         </div>
-                         <div className="text-sm font-medium text-foreground">{m.quantity > 0 ? '+' : ''}{m.quantity}</div>
-                      </div>
-                   ))}
-                </CardContent>
-             </Card>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <KPICard title="Variants" value={product.variants.length} freshness="Live" />
+        <KPICard title="Units On Hand" value={Math.round(totalStock).toLocaleString("en-IN")} freshness="Live" />
+        <KPICard title="Inventory Value" value={formatINR(invValue)} freshness="Live" />
       </div>
-    </div>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-base font-medium">Variants</CardTitle></CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/40 text-muted-foreground border-b border-border">
+              <tr>
+                <th className="p-3 font-medium">Name</th>
+                <th className="p-3 font-medium">SKU</th>
+                <th className="p-3 font-medium">Unit</th>
+                <th className="p-3 font-medium text-right">Price</th>
+                <th className="p-3 font-medium text-right">On Hand</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {product.variants.map((v) => (
+                <tr key={v.id} className="hover:bg-muted/30 transition-colors">
+                  <td className="p-3 font-medium">{v.name}</td>
+                  <td className="p-3 font-mono text-xs">{v.sku}</td>
+                  <td className="p-3 text-muted-foreground">{v.unit?.symbol ?? "—"}</td>
+                  <td className="p-3 text-right tabular-nums">{formatINR(v.price)}</td>
+                  <td className="p-3 text-right tabular-nums">{Math.round(stockByVariant.get(v.id) ?? 0).toLocaleString("en-IN")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </WorkspaceLayout>
   );
 }

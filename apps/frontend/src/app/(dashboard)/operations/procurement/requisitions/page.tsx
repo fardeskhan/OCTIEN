@@ -1,4 +1,3 @@
-// @ts-nocheck
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireBusinessContext } from "@/lib/server-auth";

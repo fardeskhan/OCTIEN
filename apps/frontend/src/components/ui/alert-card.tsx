@@ -25,8 +25,8 @@ export function AlertCard({
       className={cn(
         "overflow-hidden flex flex-col", 
         variant === "critical" && "border-destructive bg-destructive/5 text-destructive",
-        variant === "warning" && "border-warning bg-warning/5 text-warning-foreground",
-        variant === "info" && "border-info bg-info/5 text-info-foreground",
+        variant === "warning" && "border-warning bg-warning/5 text-warning",
+        variant === "info" && "border-info bg-info/5 text-info",
         className
       )}
     >

@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useState } from "react";
@@ -24,7 +23,7 @@ export default function LoginPage() {
       fetchOptions: {
         onSuccess: () => {
           toast.success("Logged in successfully");
-          router.push("/dashboard");
+          router.push("/");
         },
         onError: (ctx) => {
           toast.error(ctx.error.message);

@@ -1,80 +1,63 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Adjustment } from "@/types"
-import { mockAdjustments } from "@/app/(dashboard)/_data/inventory"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout";
+import { Card, CardContent } from "@/components/ui/card";
+import { AdjustmentForm } from "./adjustment-form";
 
+export default async function InventoryAdjustmentsPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("inventory.read");
 
-export default function AdjustmentsPage() {
-  const columns: ColumnDef<Adjustment>[] = [
-    {
-      accessorKey: "id",
-      header: "Adjustment ID",
-      cell: ({ row }) => <span className="font-medium text-primary hover:underline cursor-pointer">{row.getValue("id")}</span>,
-    },
-    {
-      accessorKey: "date",
-      header: "Date",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as string
-        return (
-          <Badge variant={status === "Approved" ? "default" : status === "Pending" ? "secondary" : "destructive"}>
-            {status}
-          </Badge>
-        )
-      }
-    },
-    {
-      accessorKey: "location",
-      header: "Location",
-    },
-    {
-      accessorKey: "reason",
-      header: "Reason Code",
-    },
-    {
-      accessorKey: "amount",
-      header: () => <div className="text-right">Value Impact</div>,
-      cell: ({ row }) => {
-        const amount = row.getValue("amount") as number
-        return (
-          <div className={`text-right font-medium ${amount > 0 ? "text-emerald-600 dark:text-emerald-500" : "text-red-600 dark:text-red-500"}`}>
-            {amount > 0 ? "+" : ""}${Math.abs(amount).toFixed(2)}
-          </div>
-        )
-      },
-    },
-  ]
+  const [adjustments, variants, warehouses] = await Promise.all([
+    db.stockMovementRecord.findMany({ where: { businessId, type: "ADJUSTED" }, orderBy: { occurredAt: "desc" }, take: 100 }),
+    db.productVariant.findMany({ where: { businessId, deletedAt: null }, include: { unit: { select: { symbol: true } } }, orderBy: { name: "asc" } }),
+    db.warehouse.findMany({ where: { businessId }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
+
+  const vName = new Map(variants.map((v) => [v.id, v.name]));
+  const wName = new Map(warehouses.map((w) => [w.id, w.name]));
 
   return (
     <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Stock Adjustments" 
-        description="Review and approve inventory quantity and value adjustments."
-        actions={<Button>New Adjustment</Button>}
-      />
-      
-      <FilterBar 
-        placeholder="Search adjustments..." 
-        views={["All", "Pending Approval", "Approved"]}
+      <WorkspaceHeader title="Inventory Adjustments" description="Cycle counts and corrections — posts to the stock ledger and updates on-hand." />
+
+      <AdjustmentForm
+        variants={variants.map((v) => ({ id: v.id, name: v.name, unit: v.unit?.symbol ?? "PCS" }))}
+        warehouses={warehouses}
       />
 
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockAdjustments} 
-        />
-      </div>
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/40 text-muted-foreground border-b border-border">
+              <tr>
+                <th className="p-3 font-medium">Date</th>
+                <th className="p-3 font-medium">Product</th>
+                <th className="p-3 font-medium">Warehouse</th>
+                <th className="p-3 font-medium text-right">Adjustment</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {adjustments.length === 0 ? (
+                <tr><td colSpan={4} className="p-10 text-center text-muted-foreground">No adjustments posted yet.</td></tr>
+              ) : (
+                adjustments.map((m) => (
+                  <tr key={m.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-3 whitespace-nowrap text-muted-foreground">{m.occurredAt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                    <td className="p-3 font-medium">{vName.get(m.variantId) ?? "—"}</td>
+                    <td className="p-3 text-muted-foreground">{wName.get(m.warehouseId) ?? "—"}</td>
+                    <td className={`p-3 text-right tabular-nums font-medium ${m.quantityValue >= 0 ? "text-emerald-600 dark:text-emerald-500" : "text-rose-600 dark:text-rose-500"}`}>
+                      {m.quantityValue >= 0 ? "+" : ""}{Math.round(m.quantityValue).toLocaleString("en-IN")} {m.quantityUnit}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
     </WorkspaceLayout>
-  )
+  );
 }

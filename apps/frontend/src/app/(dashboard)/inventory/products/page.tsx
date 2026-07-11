@@ -1,174 +1,47 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { EntityDrawer } from "@/components/layout/drawer-layout"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Badge } from "@/components/ui/badge"
-import { Product } from "@/types"
-import { mockProducts } from "@/app/(dashboard)/_data/inventory"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { ProductsList } from "./products-list";
+import type { Product } from "@/types";
 
+const STATUS_MAP: Record<string, Product["status"]> = {
+  ACTIVE: "Active",
+  INACTIVE: "Draft",
+  DISCONTINUED: "Archived",
+};
 
-export default function ProductsPage() {
-  const [selectedProduct, setSelectedProduct] = React.useState<Product | null>(null)
+export default async function ProductsPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("inventory.read");
 
-  const columns: ColumnDef<Product>[] = [
-    {
-      id: "select",
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected()}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
-        />
-      ),
-      enableSorting: false,
-      enableHiding: false,
-    },
-    {
-      accessorKey: "code",
-      header: "Code",
-      cell: ({ row }) => (
-        <span 
-          className="font-medium text-primary hover:underline cursor-pointer"
-          onClick={() => setSelectedProduct(row.original)}
-        >
-          {row.getValue("code")}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "name",
-      header: "Product Name",
-    },
-    {
-      accessorKey: "category",
-      header: "Category",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as string
-        return (
-          <Badge variant={status === "Active" ? "default" : status === "Draft" ? "secondary" : "outline"}>
-            {status}
-          </Badge>
-        )
-      }
-    },
-    {
-      accessorKey: "stock",
-      header: () => <div className="text-right">Stock Level</div>,
-      cell: ({ row }) => <div className="text-right font-medium">{row.getValue("stock")}</div>,
-    },
-  ]
+  const [products, projections] = await Promise.all([
+    db.product.findMany({
+      where: { businessId, deletedAt: null },
+      include: { category: true, variants: { where: { deletedAt: null } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.inventoryVariantProjection.findMany({ where: { businessId } }),
+  ]);
 
-  return (
-    <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Products" 
-        description="Manage product catalog and master data."
-        actions={<Button>New Product</Button>}
-      />
-      
-      <FilterBar 
-        placeholder="Search products..." 
-        views={["All", "Active", "Drafts", "Archived"]}
-      />
+  const stockByVariant = new Map<string, number>();
+  for (const proj of projections) {
+    stockByVariant.set(proj.variantId, (stockByVariant.get(proj.variantId) ?? 0) + proj.onHandQuantity);
+  }
 
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockProducts} 
-          renderBulkActions={(selected) => (
-            <>
-              <Button variant="secondary" size="sm">Update Category</Button>
-              <Button variant="secondary" size="sm">Archive</Button>
-              <Button variant="destructive" size="sm">Delete</Button>
-            </>
-          )}
-        />
-      </div>
+  const data: Product[] = products.map((p) => {
+    const firstVariant = p.variants[0];
+    const stock = p.variants.reduce((s, v) => s + (stockByVariant.get(v.id) ?? 0), 0);
+    return {
+      id: p.id,
+      code: firstVariant?.sku ?? p.id.slice(0, 8).toUpperCase(),
+      name: p.name,
+      category: p.category?.name ?? "Uncategorized",
+      status: STATUS_MAP[p.status] ?? "Draft",
+      stock: Math.round(stock),
+      price: firstVariant?.price ?? 0,
+    };
+  });
 
-      <EntityDrawer
-        open={!!selectedProduct}
-        onOpenChange={(open) => !open && setSelectedProduct(null)}
-        title={selectedProduct?.name}
-        kpis={
-          <>
-            <div className="flex flex-col gap-1 border-r border-border px-4 first:pl-0">
-              <span className="text-xs text-muted-foreground">Code</span>
-              <span className="font-semibold">{selectedProduct?.code}</span>
-            </div>
-            <div className="flex flex-col gap-1 border-r border-border px-4">
-              <span className="text-xs text-muted-foreground">Status</span>
-              <Badge className="w-fit" variant={selectedProduct?.status === "Active" ? "default" : "secondary"}>
-                {selectedProduct?.status}
-              </Badge>
-            </div>
-            <div className="flex flex-col gap-1 px-4">
-              <span className="text-xs text-muted-foreground">Stock Level</span>
-              <span className="font-semibold">{selectedProduct?.stock} Units</span>
-            </div>
-          </>
-        }
-        tabs={
-          <div className="flex gap-4 border-b border-border mt-4">
-            <div className="border-b-2 border-primary pb-2 text-sm font-medium">Summary</div>
-            <div className="text-sm text-muted-foreground pb-2">Variants</div>
-            <div className="text-sm text-muted-foreground pb-2">Pricing</div>
-            <div className="text-sm text-muted-foreground pb-2">Audit Log</div>
-          </div>
-        }
-        actions={
-          <>
-            <Button variant="outline">Print Label</Button>
-            <Button>Edit Product</Button>
-          </>
-        }
-      >
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-sm font-medium mb-4">Basic Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">Category</span>
-                <p className="text-sm">{selectedProduct?.category}</p>
-              </div>
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">Base Price</span>
-                <p className="text-sm">${selectedProduct?.price.toFixed(2)}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div>
-            <h3 className="text-sm font-medium mb-4">Inventory Rules</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">Min Stock Level</span>
-                <p className="text-sm">500 Units</p>
-              </div>
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">Reorder Point</span>
-                <p className="text-sm">1,000 Units</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </EntityDrawer>
-    </WorkspaceLayout>
-  )
+  return <ProductsList data={data} />;
 }

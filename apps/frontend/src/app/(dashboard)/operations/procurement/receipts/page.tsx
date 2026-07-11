@@ -1,84 +1,38 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Receipt } from "@/types"
-import { mockReceipts } from "@/app/(dashboard)/_data/procurement"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { GoodsReceiptsTable } from "./receipts-table";
+import type { Receipt } from "@/types";
 
+const STATUS_MAP: Record<string, Receipt["status"]> = {
+  REQUESTED: "Pending",
+  PROCESSING: "Pending",
+  COMPLETED: "Completed",
+  REJECTED: "Discrepancy",
+};
 
-export default function GoodsReceiptsPage() {
-  const columns: ColumnDef<Receipt>[] = [
-    {
-      accessorKey: "id",
-      header: "GRN Number",
-      cell: ({ row }) => <span className="font-medium text-primary hover:underline cursor-pointer">{row.getValue("id")}</span>,
-    },
-    {
-      accessorKey: "date",
-      header: "Date",
-    },
-    {
-      accessorKey: "poNumber",
-      header: "PO Reference",
-      cell: ({ row }) => <span className="text-muted-foreground">{row.getValue("poNumber")}</span>,
-    },
-    {
-      accessorKey: "supplier",
-      header: "Supplier",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as string
-        return (
-          <Badge variant={status === "Completed" ? "default" : status === "Discrepancy" ? "destructive" : "warning"}>
-            {status}
-          </Badge>
-        )
-      }
-    },
-    {
-      accessorKey: "items",
-      header: () => <div className="text-right">Lines Received</div>,
-      cell: ({ row }) => <div className="text-right">{row.getValue("items")}</div>,
-    },
-    {
-      id: "actions",
-      header: () => <div className="text-right">Actions</div>,
-      cell: () => (
-        <div className="flex justify-end gap-2">
-           <Button size="sm" variant="outline">Scan</Button>
-           <Button size="sm">Receive</Button>
-        </div>
-      )
-    }
-  ]
+export default async function GoodsReceiptsPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("procurement.read");
 
-  return (
-    <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Goods Receipts" 
-        description="Rapid receiving workflow for incoming warehouse deliveries."
-        actions={<Button>New Receipt</Button>}
-      />
-      
-      <FilterBar 
-        placeholder="Search receipts..." 
-        views={["All", "Pending Receiving", "Discrepancies", "Completed"]}
-      />
+  const receipts = await db.goodsReceiptRequest.findMany({
+    where: { businessId },
+    include: {
+      purchaseOrder: { select: { code: true, supplier: { select: { name: true } } } },
+      _count: { select: { lines: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
 
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockReceipts} 
-        />
-      </div>
-    </WorkspaceLayout>
-  )
+  const data: Receipt[] = receipts.map((grn): Receipt => ({
+    id: grn.code,
+    date: (grn.receivedAt ?? grn.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+    poNumber: grn.purchaseOrder.code,
+    supplier: grn.purchaseOrder.supplier.name,
+    status: STATUS_MAP[grn.status] ?? "Pending",
+    items: grn._count.lines,
+  }));
+
+  return <GoodsReceiptsTable data={data} />;
 }

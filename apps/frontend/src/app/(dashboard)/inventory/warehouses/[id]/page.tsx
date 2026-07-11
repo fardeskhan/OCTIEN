@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useInventoryWarehouse } from '@/features/inventory/queries/getWarehouse';

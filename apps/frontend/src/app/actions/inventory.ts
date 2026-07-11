@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
@@ -96,14 +95,14 @@ export async function adjustInventory(variantId: string, warehouseId: string, qu
         type: quantity > 0 ? "RECEIVED" : "ADJUSTED",
         quantityValue: quantity,
         quantityUnit: unit,
-        actorId: session.userId,
+        actorId: session.user.id,
       }
     });
 
     await updateVariantProjection(tx, currentBusinessId, tenantId, variantId, warehouseId);
   });
 
-  revalidatePath("/dashboard/inventory");
+  revalidatePath("/inventory");
   await processOutboxBatch();
   return { success: true };
 }
@@ -142,7 +141,7 @@ export async function transferInventory(variantId: string, sourceWarehouseId: st
         type: "TRANSFERRED_OUT",
         quantityValue: -quantity,
         quantityUnit: unit,
-        actorId: session.userId,
+        actorId: session.user.id,
         correlationId,
       }
     });
@@ -159,7 +158,7 @@ export async function transferInventory(variantId: string, sourceWarehouseId: st
         type: "RECEIVED",
         quantityValue: quantity,
         quantityUnit: unit,
-        actorId: session.userId,
+        actorId: session.user.id,
         correlationId,
       }
     });
@@ -168,7 +167,7 @@ export async function transferInventory(variantId: string, sourceWarehouseId: st
     await updateVariantProjection(tx, currentBusinessId, tenantId, variantId, targetWarehouseId);
   });
 
-  revalidatePath("/dashboard/inventory");
+  revalidatePath("/inventory");
   await processOutboxBatch();
   return { success: true };
 }
@@ -225,7 +224,7 @@ export async function processGoodsReceiptRequest(grId: string, acceptedLines: { 
             type: "RECEIVED",
             quantityValue: inputLine.acceptedQty,
             quantityUnit: "pcs",
-            actorId: session.userId,
+            actorId: session.user.id,
             correlationId,
           }
         });
@@ -241,7 +240,7 @@ export async function processGoodsReceiptRequest(grId: string, acceptedLines: { 
       data: {
         status: "COMPLETED",
         receivedAt: new Date(),
-        updatedBy: session.userId,
+        updatedBy: session.user.id,
       }
     });
 
@@ -262,8 +261,8 @@ export async function processGoodsReceiptRequest(grId: string, acceptedLines: { 
     }
   });
 
-  revalidatePath("/dashboard/procurement/receipts");
-  revalidatePath("/dashboard/inventory");
+  revalidatePath("/operations/procurement/receipts");
+  revalidatePath("/inventory");
   await processOutboxBatch();
   return { success: true };
 }
@@ -315,7 +314,7 @@ export async function processGoodsReceipt(grId: string, acceptedLines: { id: str
             type: "RECEIVED",
             quantityValue: inputLine.acceptedQty,
             quantityUnit: "pcs", // Needs real unit mapping in prod
-            actorId: session.userId,
+            actorId: session.user.id,
             correlationId,
           }
         });

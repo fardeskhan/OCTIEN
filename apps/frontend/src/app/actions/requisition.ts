@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use server";
 
 import { db } from "@/lib/db";
@@ -28,11 +27,11 @@ export async function createPurchaseRequisition(formData: FormData) {
       businessId: currentBusinessId,
       code,
       status: "DRAFT",
-      requesterId: session.userId,
+      requesterId: session.user.id,
       department,
       justification,
-      createdBy: session.userId,
-      updatedBy: session.userId,
+      createdBy: session.user.id,
+      updatedBy: session.user.id,
       lines: {
         create: lines.map(line => ({
           variantId: line.variantId,
@@ -43,8 +42,8 @@ export async function createPurchaseRequisition(formData: FormData) {
     }
   });
 
-  revalidatePath("/dashboard/procurement/requisitions");
-  redirect(`/dashboard/procurement/requisitions/${pr.id}`);
+  revalidatePath("/operations/procurement/requisitions");
+  redirect(`/operations/procurement/requisitions/${pr.id}`);
 }
 
 export async function updateRequisitionStatus(id: string, status: PRStatus) {
@@ -64,11 +63,11 @@ export async function updateRequisitionStatus(id: string, status: PRStatus) {
     where: { id },
     data: {
       status,
-      updatedBy: session.userId,
+      updatedBy: session.user.id,
     }
   });
 
-  revalidatePath(`/dashboard/procurement/requisitions/${id}`);
-  revalidatePath("/dashboard/procurement/requisitions");
+  revalidatePath(`/operations/procurement/requisitions/${id}`);
+  revalidatePath("/operations/procurement/requisitions");
   return { success: true };
 }

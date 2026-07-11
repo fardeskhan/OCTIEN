@@ -1,69 +1,37 @@
-"use client"
-import * as React from "react"
-import { WorkspaceLayout, WorkspaceHeader } from "@/components/layout/workspace-layout"
-import { FilterBar } from "@/components/ui/filter-bar"
-import { DataTable } from "@/components/ui/data-table"
-import { ColumnDef } from "@tanstack/react-table"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { PurchaseOrder } from "@/types"
-import { mockOrders } from "@/app/(dashboard)/_data/procurement"
+export const dynamic = "force-dynamic";
 
+import { db } from "@/lib/db";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { PurchaseOrdersTable } from "./orders-table";
+import type { PurchaseOrder } from "@/types";
 
+const STATUS_MAP: Record<string, PurchaseOrder["status"]> = {
+  DRAFT: "Draft",
+  APPROVED: "Approved",
+  ORDERED: "Sent",
+  PARTIALLY_RECEIVED: "Partial",
+  RECEIVED: "Received",
+  CLOSED: "Received",
+  CANCELLED: "Cancelled",
+};
 
-export default function PurchaseOrdersPage() {
-  const columns: ColumnDef<PurchaseOrder>[] = [
-    {
-      accessorKey: "id",
-      header: "PO Number",
-      cell: ({ row }) => <span className="font-medium text-primary hover:underline cursor-pointer">{row.getValue("id")}</span>,
-    },
-    {
-      accessorKey: "date",
-      header: "Date",
-    },
-    {
-      accessorKey: "supplier",
-      header: "Supplier",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as string
-        return (
-          <Badge variant={status === "Received" ? "default" : status === "Cancelled" ? "destructive" : "secondary"}>
-            {status}
-          </Badge>
-        )
-      }
-    },
-    {
-      accessorKey: "total",
-      header: () => <div className="text-right">Total Amount</div>,
-      cell: ({ row }) => <div className="text-right font-medium">${(row.getValue("total") as number).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>,
-    },
-  ]
+export default async function PurchaseOrdersPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("procurement.read");
 
-  return (
-    <WorkspaceLayout>
-      <WorkspaceHeader 
-        title="Purchase Orders" 
-        description="Manage supplier orders and procurement pipeline."
-        actions={<Button>Create PO</Button>}
-      />
-      
-      <FilterBar 
-        placeholder="Search orders..." 
-        views={["All", "Pending Approval", "Open Orders", "Completed"]}
-      />
+  const orders = await db.purchaseOrder.findMany({
+    where: { businessId },
+    include: { supplier: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
 
-      <div className="flex-1 overflow-hidden mt-4">
-        <DataTable 
-          columns={columns} 
-          data={mockOrders} 
-        />
-      </div>
-    </WorkspaceLayout>
-  )
+  const data: PurchaseOrder[] = orders.map((po): PurchaseOrder => ({
+    id: po.code,
+    date: (po.orderedAt ?? po.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+    supplier: po.supplier.name,
+    status: STATUS_MAP[po.status] ?? "Draft",
+    total: po.totalAmount,
+  }));
+
+  return <PurchaseOrdersTable data={data} />;
 }

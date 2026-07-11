@@ -7,31 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ------------------------------------------------------
-// WRITE SCHEMA (Domain Aggregates & Ledgers)
-// ------------------------------------------------------
-
 model InventoryRecord {
-  id          String @id
-  businessId  String
-  tenantId    String
-  variantId   String
-  warehouseId String
-  version     Int    @default(0) // Optimistic Concurrency Control
-
-  // Standard Audit Columns
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-  createdBy String
-  updatedBy String
-  deletedBy String?
-
-  movements    StockMovementRecord[]
+  id           String                @id
+  businessId   String
+  tenantId     String
+  variantId    String
+  warehouseId  String
+  version      Int                   @default(0)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  deletedAt    DateTime?
+  createdBy    String
+  updatedBy    String
+  deletedBy    String?
+  variant      ProductVariant        @relation(fields: [variantId], references: [id])
+  warehouse    Warehouse             @relation(fields: [warehouseId], references: [id])
   reservations ReservationRecord[]
-
-  warehouse Warehouse?      @relation(fields: [warehouseId], references: [id])
-  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+  movements    StockMovementRecord[]
 
   @@unique([businessId, variantId, warehouseId])
   @@index([businessId, variantId, warehouseId])
@@ -39,25 +31,23 @@ model InventoryRecord {
 }
 
 model StockMovementRecord {
-  id            String   @id
+  id            String          @id
   businessId    String
   tenantId      String
   inventoryId   String
   variantId     String
   warehouseId   String
   batchId       String?
-  type          String // RECEIVED, ADJUSTED, TRANSFERRED_OUT, RESERVED
+  type          String
   quantityValue Float
   quantityUnit  String
   actorId       String
   correlationId String?
   causationId   String?
   metadata      Json?
-  occurredAt    DateTime @default(now())
-
-  createdAt DateTime @default(now())
-
-  inventory InventoryRecord @relation(fields: [inventoryId], references: [id])
+  occurredAt    DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  inventory     InventoryRecord @relation(fields: [inventoryId], references: [id])
 
   @@index([inventoryId, occurredAt])
   @@index([businessId, batchId])
@@ -70,34 +60,31 @@ model BatchRecord {
   tenantId   String
   variantId  String
   code       String
-  status     String // CREATED, RECEIVED, AVAILABLE, CLOSED
+  status     String
   expiresAt  DateTime?
   version    Int       @default(0)
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-  createdBy String
-  updatedBy String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+  createdBy  String
+  updatedBy  String
 
   @@unique([businessId, variantId, code])
   @@map("batches")
 }
 
 model ReservationRecord {
-  id          String   @id
+  id          String          @id
   businessId  String
   tenantId    String
   inventoryId String
   quantity    Float
   referenceId String
   expiresAt   DateTime
-  status      String // ACTIVE, FULFILLED, EXPIRED, RELEASED
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  inventory InventoryRecord @relation(fields: [inventoryId], references: [id])
+  status      String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  inventory   InventoryRecord @relation(fields: [inventoryId], references: [id])
 
   @@index([inventoryId, expiresAt])
   @@map("reservations")
@@ -115,106 +102,104 @@ model OutboxEventRecord {
   occurredAt       DateTime
   payload          Json
   retryCount       Int       @default(0)
-  status           String // PENDING, PROCESSING, COMPLETED, FAILED
+  status           String
   processedAt      DateTime?
   lastAttemptAt    DateTime?
   failureReason    String?
-
-  createdAt DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
   @@index([status, occurredAt, retryCount])
   @@map("outbox_events")
 }
 
-// ------------------------------------------------------
-// PLATFORM FOUNDATION (STEP 0)
-// ------------------------------------------------------
-
 model Tenant {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+  id         String     @id @default(cuid())
+  name       String
+  slug       String     @unique
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
   businesses Business[]
-  users      User[]
   roles      Role[]
+  users      User[]
 
   @@map("tenants")
 }
 
 model BusinessType {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String     @id @default(cuid())
+  name        String     @unique
   description String?
-  createdAt   DateTime @default(now())
-
-  businesses Business[]
+  createdAt   DateTime   @default(now())
+  businesses  Business[]
 
   @@map("business_types")
 }
 
 model Business {
-  id                   String   @id @default(cuid())
+  id                   String                      @id @default(cuid())
   tenantId             String
   businessTypeId       String
   name                 String
-  slug                 String   @unique
-  status               String   @default("ACTIVE")
+  slug                 String                      @unique
+  status               String                      @default("ACTIVE")
   defaultCurrencyId    String?
-  fiscalYearStartMonth Int      @default(4)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  tenant               Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fiscalYearStartMonth Int                         @default(4)
+  legalName            String?
+  tagline              String?
+  logoUrl              String?
+  primaryColor         String?
+  accentColor          String?
+  email                String?
+  phone                String?
+  addressLine          String?
+  taxId                String?
+  footerNote           String?
+  paymentInstructions  String?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  bankAccounts         BankAccount[]
+  accountingPeriods    AccountingPeriod[]
   businessType         BusinessType                @relation(fields: [businessTypeId], references: [id])
-  memberships          Membership[]
-  customerInvoices     CustomerInvoice[]
-  customerPayments     CustomerPayment[]
-  supplierBills        SupplierBill[]
-  supplierPayments     SupplierPayment[]
+  tenant               Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   cashTransactions     CashTransaction[]
-  transporters         Transporter[]
-  vehicles             Vehicle[]
-  deliveryRuns         DeliveryRun[]
-  ewayBills            EWayBill[]
-  drivers              Driver[]
+  customerInvoices     CustomerInvoice[]
+  customerAllocations  CustomerPaymentAllocation[]
+  customerPayments     CustomerPayment[]
   deliveryRunStops     DeliveryRunStop[]
+  deliveryRuns         DeliveryRun[]
+  drivers              Driver[]
+  ewayBills            EWayBill[]
+  financialPeriods     FinancialPeriod[]
+  journalEntries       JournalEntry[]
+  journalLines         JournalLine[]
+  accounts             LedgerAccount[]
+  memberships          Membership[]
   payableEntries       PayableEntry[]
   paymentAllocations   PaymentAllocation[]
   receivableEntries    ReceivableEntry[]
-  customerAllocations  CustomerPaymentAllocation[]
-  accountingPeriods    AccountingPeriod[]
-  accounts             LedgerAccount[]
-  journalEntries       JournalEntry[]
-  journalLines         JournalLine[]
-  bankAccounts         BankAccount[]
-  financialPeriods     FinancialPeriod[]
   recurringCommitments RecurringCommitment[]
+  supplierBills        SupplierBill[]
+  supplierPayments     SupplierPayment[]
+  transporters         Transporter[]
+  vehicles             Vehicle[]
 
   @@index([tenantId])
   @@map("businesses")
 }
 
-// ------------------------------------------------------
-// AUTHENTICATION & IAM (STEP 1)
-// ------------------------------------------------------
-
 model User {
-  id            String   @id @default(cuid())
+  id            String       @id @default(cuid())
   tenantId      String
   name          String
-  email         String   @unique
-  emailVerified Boolean  @default(false)
+  email         String       @unique
+  emailVerified Boolean      @default(false)
   image         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sessions    Session[]
-  accounts    Account[]
-  memberships Membership[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  accounts      Account[]
+  memberships   Membership[]
+  sessions      Session[]
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("users")
@@ -223,7 +208,7 @@ model User {
 model Session {
   id        String   @id @default(cuid())
   expiresAt DateTime
-  token     String
+  token     String   @unique
   createdAt DateTime
   updatedAt DateTime
   ipAddress String?
@@ -231,7 +216,6 @@ model Session {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([token])
   @@map("sessions")
 }
 
@@ -240,7 +224,6 @@ model Account {
   accountId             String
   providerId            String
   userId                String
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   accessToken           String?
   refreshToken          String?
   idToken               String?
@@ -250,6 +233,7 @@ model Account {
   password              String?
   createdAt             DateTime
   updatedAt             DateTime
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("accounts")
 }
@@ -266,53 +250,49 @@ model Verification {
 }
 
 model Role {
-  id          String  @id @default(cuid())
+  id          String           @id @default(cuid())
   tenantId    String
   name        String
   description String?
-  isSystem    Boolean @default(false)
-
-  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  permissions RolePermission[]
+  isSystem    Boolean          @default(false)
   memberships Membership[]
+  permissions RolePermission[]
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, name])
   @@map("roles")
 }
 
 model Permission {
-  id          String  @id @default(cuid())
-  resource    String // e.g., "inventory", "purchase_orders"
-  action      String // e.g., "create", "read", "update", "delete"
+  id          String           @id @default(cuid())
+  resource    String
+  action      String
   description String?
-
-  roles RolePermission[]
+  roles       RolePermission[]
 
   @@unique([resource, action])
   @@map("permissions")
 }
 
 model RolePermission {
-  id           String @id @default(cuid())
+  id           String     @id @default(cuid())
   roleId       String
   permissionId String
-
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([roleId, permissionId])
   @@map("role_permissions")
 }
 
 model Membership {
-  id         String @id @default(cuid())
+  id         String   @id @default(cuid())
   userId     String
   businessId String
   roleId     String
-
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  role     Role     @relation(fields: [roleId], references: [id])
+  role       Role     @relation(fields: [roleId], references: [id])
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, businessId])
   @@map("memberships")
@@ -336,10 +316,6 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-// ------------------------------------------------------
-// FINANCE LITE PLACEHOLDERS (STEP 8 early prep)
-// ------------------------------------------------------
-
 model ExpenseCategory {
   id          String   @id @default(cuid())
   businessId  String
@@ -353,10 +329,6 @@ model ExpenseCategory {
   @@map("expense_categories")
 }
 
-// ------------------------------------------------------
-// MANUFACTURING PLACEHOLDER (Salam Cola prep)
-// ------------------------------------------------------
-
 model ManufacturingBatch {
   id               String   @id @default(cuid())
   businessId       String
@@ -364,7 +336,7 @@ model ManufacturingBatch {
   productId        String
   fillingPartnerId String?
   batchNumber      String
-  status           String // PLANNED, IN_PRODUCTION, QUALITY_CHECK, RELEASED
+  status           String
   quantity         Float
   createdAt        DateTime @default(now())
 
@@ -372,20 +344,14 @@ model ManufacturingBatch {
   @@map("manufacturing_batches")
 }
 
-// ------------------------------------------------------
-// READ SCHEMA (Optimized Projections)
-// ------------------------------------------------------
-
 model DashboardProjection {
-  businessId       String @id
-  tenantId         String
-  totalProducts    Int    @default(0)
-  totalStockValue  Float  @default(0.0)
-  lowStockCount    Int    @default(0)
-  warehouseCount   Int    @default(0)
-  reservedQuantity Float  @default(0.0)
-
-  // Projection Versioning
+  businessId        String   @id
+  tenantId          String
+  totalProducts     Int      @default(0)
+  totalStockValue   Float    @default(0.0)
+  lowStockCount     Int      @default(0)
+  warehouseCount    Int      @default(0)
+  reservedQuantity  Float    @default(0.0)
   projectionVersion Int      @default(1)
   sourceEventVer    Int      @default(0)
   rebuiltAt         DateTime @default(now())
@@ -394,18 +360,17 @@ model DashboardProjection {
 }
 
 model MovementTimelineProjection {
-  movementId  String   @id
-  businessId  String
-  tenantId    String
-  inventoryId String
-  timestamp   DateTime
-  actor       String
-  type        String
-  quantity    Float
-  unit        String
-  warehouse   String
-  batch       String?
-
+  movementId        String   @id
+  businessId        String
+  tenantId          String
+  inventoryId       String
+  timestamp         DateTime
+  actor             String
+  type              String
+  quantity          Float
+  unit              String
+  warehouse         String
+  batch             String?
   projectionVersion Int      @default(1)
   sourceEventVer    Int      @default(0)
   rebuiltAt         DateTime @default(now())
@@ -416,205 +381,137 @@ model MovementTimelineProjection {
 }
 
 model InventoryVariantProjection {
-  id          String @id @default(cuid())
-  businessId  String
-  tenantId    String
-  variantId   String
-  warehouseId String
-
-  onHandQuantity    Float   @default(0.0)
-  reservedQuantity  Float   @default(0.0)
-  availableQuantity Float   @default(0.0) // OnHand - Reserved
-  averageCost       Decimal @default(0.0)
-
-  rebuiltAt DateTime @default(now())
+  id                String   @id @default(cuid())
+  businessId        String
+  tenantId          String
+  variantId         String
+  warehouseId       String
+  onHandQuantity    Float    @default(0.0)
+  reservedQuantity  Float    @default(0.0)
+  availableQuantity Float    @default(0.0)
+  averageCost       Decimal  @default(0.0)
+  rebuiltAt         DateTime @default(now())
 
   @@unique([businessId, variantId, warehouseId])
   @@index([businessId, variantId])
   @@map("inventory_variant_projection")
 }
 
-// ------------------------------------------------------
-// REFERENCE DATA (STEP 3)
-// ------------------------------------------------------
-
 model Unit {
-  id         String    @id @default(cuid())
+  id         String           @id @default(cuid())
   businessId String
-  name       String // e.g. "Kilogram", "Liter"
-  symbol     String // e.g. "kg", "L"
-  isSystem   Boolean   @default(false)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  name       String
+  symbol     String
+  isSystem   Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
   deletedAt  DateTime?
-
-  variants ProductVariant[]
+  variants   ProductVariant[]
 
   @@unique([businessId, symbol])
   @@map("units")
 }
 
 model Category {
-  id         String    @id @default(cuid())
+  id         String     @id @default(cuid())
   businessId String
   name       String
   parentId   String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
   deletedAt  DateTime?
-
-  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children Category[] @relation("CategoryHierarchy")
-  products Product[]
+  parent     Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children   Category[] @relation("CategoryHierarchy")
+  products   Product[]
 
   @@index([businessId])
   @@map("categories")
 }
 
-// ------------------------------------------------------
-// PRODUCT MASTER (STEP 4)
-// ------------------------------------------------------
-
-enum ProductType {
-  PHYSICAL
-  SERVICE
-  CONSUMABLE
-  RAW_MATERIAL
-  FINISHED_GOOD
-}
-
-enum ProductStatus {
-  ACTIVE
-  INACTIVE
-  DISCONTINUED
-}
-
 model Product {
-  id          String        @id @default(cuid())
+  id          String           @id @default(cuid())
   businessId  String
   categoryId  String?
   name        String
   description String?
-  type        ProductType   @default(PHYSICAL)
-  status      ProductStatus @default(ACTIVE)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  type        ProductType      @default(PHYSICAL)
+  status      ProductStatus    @default(ACTIVE)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
   deletedAt   DateTime?
-
-  category Category?        @relation(fields: [categoryId], references: [id])
-  variants ProductVariant[]
+  variants    ProductVariant[]
+  category    Category?        @relation(fields: [categoryId], references: [id])
 
   @@index([businessId])
   @@map("products")
 }
 
 model ProductVariant {
-  id         String    @id @default(cuid())
-  businessId String
-  productId  String
-  sku        String?   @unique
-  name       String // e.g. "500ml", "Red / XL", or "Default"
-  unitId     String
-  price      Float     @default(0.0)
-  cost       Float     @default(0.0)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  deletedAt  DateTime?
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  unit    Unit    @relation(fields: [unitId], references: [id])
-
+  id               String            @id @default(cuid())
+  businessId       String
+  productId        String
+  sku              String?           @unique
+  name             String
+  unitId           String
+  price            Float             @default(0.0)
+  cost             Float             @default(0.0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
   inventory        InventoryRecord[]
+  unit             Unit              @relation(fields: [unitId], references: [id])
+  product          Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
   quotationLines   QuotationLine[]
   salesOrderLines  SalesOrderLine[]
   salesReturnLines SalesReturnLine[]
   shipmentLines    ShipmentLine[]
+  purchaseOrderLines       PurchaseOrderLine[]
+  goodsReceiptLines        GoodsReceiptLine[]
+  purchaseRequisitionLines PurchaseRequisitionLine[]
 
   @@index([businessId])
   @@map("product_variants")
 }
 
-// ------------------------------------------------------
-// WAREHOUSE & LOGISTICS (STEP 5 Extension)
-// ------------------------------------------------------
-
-enum WarehouseType {
-  STORAGE
-  DISTRIBUTION
-  TRANSIT
-  PRODUCTION
-}
-
 model Warehouse {
-  id            String        @id @default(cuid())
+  id            String            @id @default(cuid())
   businessId    String
   code          String
   name          String
-  warehouseType WarehouseType @default(STORAGE)
+  warehouseType WarehouseType     @default(STORAGE)
   location      String?
-  isActive      Boolean       @default(true)
-  isDefault     Boolean       @default(false)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  isActive      Boolean           @default(true)
+  isDefault     Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
   deletedAt     DateTime?
-
-  inventory InventoryRecord[]
-  shipments Shipment[]
+  inventory     InventoryRecord[]
+  shipments     Shipment[]
 
   @@unique([businessId, code])
   @@map("warehouses")
 }
 
-// ------------------------------------------------------
-// CURRENCY (Reference Data Update)
-// ------------------------------------------------------
-
 model Currency {
-  id         String    @id @default(cuid())
-  businessId String
-  code       String    @unique // e.g., USD, AED, EUR
-  name       String
-  symbol     String
-  isDefault  Boolean   @default(false)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  deletedAt  DateTime?
-
+  id               String            @id @default(cuid())
+  businessId       String
+  code             String            @unique
+  name             String
+  symbol           String
+  isDefault        Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+  cashTransactions CashTransaction[]
+  customerInvoices CustomerInvoice[]
+  customerPayments CustomerPayment[]
   purchaseOrders   PurchaseOrder[]
   quotations       Quotation[]
   salesOrders      SalesOrder[]
-  customerInvoices CustomerInvoice[]
-  customerPayments CustomerPayment[]
   supplierBills    SupplierBill[]
   supplierPayments SupplierPayment[]
-  cashTransactions CashTransaction[]
 
   @@map("currencies")
-}
-
-// ------------------------------------------------------
-// CAP-PROCUREMENT (STEP 6)
-// ------------------------------------------------------
-// SACRED BOUNDARY WARNING:
-// Procurement MUST NOT update Inventory directly!
-// Never: createPurchaseOrder() -> inventory.adjust()
-// Never: goodsReceipt.accept() -> inventory.insert()
-// Always emit Outbox Events (GoodsReceiptRequested) and let Inventory handle it.
-// ------------------------------------------------------
-
-enum SupplierStatus {
-  PROSPECT
-  UNDER_REVIEW
-  ACTIVE
-  SUSPENDED
-  TERMINATED
-}
-
-enum SupplierRiskLevel {
-  LOW
-  MEDIUM
-  HIGH
-  BLOCKED
 }
 
 model Supplier {
@@ -624,19 +521,17 @@ model Supplier {
   code             String
   status           SupplierStatus    @default(PROSPECT)
   riskLevel        SupplierRiskLevel @default(LOW)
-  paymentTerms     String? // e.g. "NET30"
+  paymentTerms     String?
   paymentTermsDays Int?
   creditLimit      Decimal?
-
-  createdBy String?
-  updatedBy String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  contacts       SupplierContact[]
-  purchaseOrders PurchaseOrder[]
-  supplierBills  SupplierBill[]
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+  purchaseOrders   PurchaseOrder[]
+  supplierBills    SupplierBill[]
+  contacts         SupplierContact[]
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -651,34 +546,24 @@ model SupplierContact {
   phone      String?
   isPrimary  Boolean  @default(false)
   createdAt  DateTime @default(now())
-
-  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
 
   @@map("supplier_contacts")
 }
 
-enum PRStatus {
-  DRAFT
-  SUBMITTED
-  APPROVED
-  REJECTED
-}
-
 model PurchaseRequisition {
-  id            String   @id @default(cuid())
+  id            String                    @id @default(cuid())
   businessId    String
   code          String
-  status        PRStatus @default(DRAFT)
+  status        PRStatus                  @default(DRAFT)
   requesterId   String
   department    String?
   justification String?
-
-  createdBy String?
-  updatedBy String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  lines PurchaseRequisitionLine[]
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  lines         PurchaseRequisitionLine[]
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -686,49 +571,37 @@ model PurchaseRequisition {
 }
 
 model PurchaseRequisitionLine {
-  id            String @id @default(cuid())
+  id            String              @id @default(cuid())
   prId          String
   variantId     String
   quantity      Float
   estimatedCost Float?
-
-  requisition PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+  requisition   PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+  variant       ProductVariant      @relation(fields: [variantId], references: [id])
 
   @@map("purchase_requisition_lines")
 }
 
-enum POStatus {
-  DRAFT
-  APPROVED
-  ORDERED
-  PARTIALLY_RECEIVED
-  RECEIVED
-  CLOSED
-  CANCELLED
-}
-
 model PurchaseOrder {
-  id          String    @id @default(cuid())
+  id          String                @id @default(cuid())
   businessId  String
   code        String
   supplierId  String
-  status      POStatus  @default(DRAFT)
+  status      POStatus              @default(DRAFT)
   orderedAt   DateTime?
   expectedAt  DateTime?
-  totalAmount Float     @default(0.0)
+  totalAmount Float                 @default(0.0)
   currencyId  String
-
-  approvedBy String?
-  approvedAt DateTime?
-  createdBy  String?
-  updatedBy  String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  supplier Supplier              @relation(fields: [supplierId], references: [id])
-  currency Currency              @relation(fields: [currencyId], references: [id])
-  lines    PurchaseOrderLine[]
-  receipts GoodsReceiptRequest[]
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  receipts    GoodsReceiptRequest[]
+  lines       PurchaseOrderLine[]
+  currency    Currency              @relation(fields: [currencyId], references: [id])
+  supplier    Supplier              @relation(fields: [supplierId], references: [id])
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -736,42 +609,33 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderLine {
-  id          String @id @default(cuid())
-  poId        String
-  variantId   String
-  quantity    Float
-  unitPrice   Float
-  totalPrice  Float
-  receivedQty Float  @default(0.0)
-
+  id            String        @id @default(cuid())
+  poId          String
+  variantId     String
+  quantity      Float
+  unitPrice     Float
+  totalPrice    Float
+  receivedQty   Float         @default(0.0)
   purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  variant       ProductVariant @relation(fields: [variantId], references: [id])
 
   @@map("purchase_order_lines")
 }
 
-enum GoodsReceiptRequestStatus {
-  REQUESTED
-  PROCESSING
-  COMPLETED
-  REJECTED
-}
-
 model GoodsReceiptRequest {
-  id          String                    @id @default(cuid())
-  businessId  String
-  code        String
-  poId        String
-  warehouseId String
-  status      GoodsReceiptRequestStatus @default(REQUESTED)
-  receivedAt  DateTime?
-
-  createdBy String?
-  updatedBy String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  purchaseOrder PurchaseOrder      @relation(fields: [poId], references: [id])
+  id            String                    @id @default(cuid())
+  businessId    String
+  code          String
+  poId          String
+  warehouseId   String
+  status        GoodsReceiptRequestStatus @default(REQUESTED)
+  receivedAt    DateTime?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
   lines         GoodsReceiptLine[]
+  purchaseOrder PurchaseOrder             @relation(fields: [poId], references: [id])
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -779,30 +643,31 @@ model GoodsReceiptRequest {
 }
 
 model GoodsReceiptLine {
-  id           String @id @default(cuid())
+  id           String              @id @default(cuid())
   grId         String
   poLineId     String
   variantId    String
   requestedQty Float
-  acceptedQty  Float  @default(0.0)
-  rejectedQty  Float  @default(0.0)
-  varianceQty  Float  @default(0.0)
-
+  acceptedQty  Float               @default(0.0)
+  rejectedQty  Float               @default(0.0)
+  varianceQty  Float               @default(0.0)
   goodsReceipt GoodsReceiptRequest @relation(fields: [grId], references: [id], onDelete: Cascade)
+  variant      ProductVariant      @relation(fields: [variantId], references: [id])
 
   @@map("goods_receipt_lines")
 }
 
-// ------------------------------------------------------
-// CAP-REPORTING (STEP 7)
-// ------------------------------------------------------
-
 model ExecutiveDashboardProjection {
-  id           String   @id @default(cuid())
-  businessId   String   @unique
-  snapshotDate DateTime @default(now())
-
-  updatedAt DateTime @updatedAt
+  id                String   @id @default(cuid())
+  businessId        String   @unique
+  totalInventoryVal Float    @default(0.0)
+  openPOAmount      Float    @default(0.0)
+  monthlySpend      Float    @default(0.0)
+  activeSuppliers   Int      @default(0)
+  pendingReceipts   Int      @default(0)
+  lowStockAlerts    Int      @default(0)
+  snapshotDate      DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@map("reporting_executive_dashboard")
 }
@@ -831,7 +696,7 @@ model ProcurementReportProjection {
   totalSpendYTD     Float  @default(0.0)
   openOrderCount    Int    @default(0)
   lateDeliveryCount Int    @default(0)
-  receiptVariance   Float  @default(0.0) // Cumulative rejected/variance Qty
+  receiptVariance   Float  @default(0.0)
 
   @@unique([businessId, supplierId])
   @@index([businessId])
@@ -851,44 +716,26 @@ model SupplierPerformanceProjection {
   @@map("reporting_supplier_performance")
 }
 
-// ------------------------------------------------------
-// CAP-SALES (STEP 8)
-// ------------------------------------------------------
-
-enum CustomerStatus {
-  ACTIVE
-  ON_HOLD
-  INACTIVE
-}
-
-enum CustomerCreditStatus {
-  GOOD
-  HOLD
-  BLOCKED
-}
-
 model Customer {
-  id           String               @id @default(cuid())
-  businessId   String
-  code         String
-  name         String
-  status       CustomerStatus       @default(ACTIVE)
-  creditStatus CustomerCreditStatus @default(GOOD)
-
-  createdBy String?
-  updatedBy String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  contacts          CustomerContact[]
+  id                String               @id @default(cuid())
+  businessId        String
+  code              String
+  name              String
+  status            CustomerStatus       @default(ACTIVE)
+  creditStatus      CustomerCreditStatus @default(GOOD)
+  createdBy         String?
+  updatedBy         String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  deletedAt         DateTime?
   addresses         CustomerAddress[]
-  quotations        Quotation[]
-  salesOrders       SalesOrder[]
-  returns           SalesReturn[]
+  contacts          CustomerContact[]
   customerInvoices  CustomerInvoice[]
   customerPayments  CustomerPayment[]
+  quotations        Quotation[]
   receivableEntries ReceivableEntry[]
+  salesOrders       SalesOrder[]
+  returns           SalesReturn[]
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -903,8 +750,7 @@ model CustomerContact {
   phone      String?
   isPrimary  Boolean  @default(false)
   createdAt  DateTime @default(now())
-
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@map("customer_contacts")
 }
@@ -912,7 +758,7 @@ model CustomerContact {
 model CustomerAddress {
   id          String   @id @default(cuid())
   customerId  String
-  label       String // e.g. "Billing", "Shipping", "Headquarters"
+  label       String
   addressLine String
   city        String?
   state       String?
@@ -920,18 +766,9 @@ model CustomerAddress {
   zipCode     String?
   isPrimary   Boolean  @default(false)
   createdAt   DateTime @default(now())
-
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@map("customer_addresses")
-}
-
-enum QuotationStatus {
-  DRAFT
-  SENT
-  ACCEPTED
-  REJECTED
-  EXPIRED
 }
 
 model Quotation {
@@ -944,15 +781,13 @@ model Quotation {
   expiredAt   DateTime?
   totalAmount Float           @default(0.0)
   currencyId  String
-
-  createdBy String?
-  updatedBy String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  customer Customer        @relation(fields: [customerId], references: [id])
-  currency Currency        @relation(fields: [currencyId], references: [id])
-  lines    QuotationLine[]
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  lines       QuotationLine[]
+  currency    Currency        @relation(fields: [currencyId], references: [id])
+  customer    Customer        @relation(fields: [customerId], references: [id])
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -960,26 +795,16 @@ model Quotation {
 }
 
 model QuotationLine {
-  id          String @id @default(cuid())
+  id          String         @id @default(cuid())
   quotationId String
   variantId   String
   quantity    Float
   unitPrice   Float
   totalPrice  Float
-
-  quotation Quotation      @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  variant   ProductVariant @relation(fields: [variantId], references: [id])
+  variant     ProductVariant @relation(fields: [variantId], references: [id])
+  quotation   Quotation      @relation(fields: [quotationId], references: [id], onDelete: Cascade)
 
   @@map("quotation_lines")
-}
-
-enum SalesOrderStatus {
-  DRAFT
-  APPROVED
-  CONFIRMED
-  PARTIALLY_FULFILLED
-  FULFILLED
-  CANCELLED
 }
 
 model SalesOrder {
@@ -990,17 +815,15 @@ model SalesOrder {
   status      SalesOrderStatus @default(DRAFT)
   totalAmount Float            @default(0.0)
   currencyId  String
-
-  createdBy String?
-  updatedBy String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  customer  Customer         @relation(fields: [customerId], references: [id])
-  currency  Currency         @relation(fields: [currencyId], references: [id])
-  lines     SalesOrderLine[]
-  returns   SalesReturn[]
-  shipments Shipment[]
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  lines       SalesOrderLine[]
+  currency    Currency         @relation(fields: [currencyId], references: [id])
+  customer    Customer         @relation(fields: [customerId], references: [id])
+  returns     SalesReturn[]
+  shipments   Shipment[]
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -1008,27 +831,19 @@ model SalesOrder {
 }
 
 model SalesOrderLine {
-  id           String @id @default(cuid())
-  soId         String
-  variantId    String
-  quantity     Float
-  unitPrice    Float
-  totalPrice   Float
-  fulfilledQty Float  @default(0.0)
-  reservedQty  Float  @default(0.0)
-
-  salesOrder    SalesOrder     @relation(fields: [soId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  soId          String
+  variantId     String
+  quantity      Float
+  unitPrice     Float
+  totalPrice    Float
+  fulfilledQty  Float          @default(0.0)
+  reservedQty   Float          @default(0.0)
   variant       ProductVariant @relation(fields: [variantId], references: [id])
+  salesOrder    SalesOrder     @relation(fields: [soId], references: [id], onDelete: Cascade)
   shipmentLines ShipmentLine[]
 
   @@map("sales_order_lines")
-}
-
-enum SalesReturnStatus {
-  REQUESTED
-  APPROVED
-  RECEIVED
-  REJECTED
 }
 
 model SalesReturn {
@@ -1039,15 +854,13 @@ model SalesReturn {
   soId        String
   warehouseId String?
   status      SalesReturnStatus @default(REQUESTED)
-
-  createdBy String?
-  updatedBy String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  customer   Customer          @relation(fields: [customerId], references: [id])
-  salesOrder SalesOrder        @relation(fields: [soId], references: [id])
-  lines      SalesReturnLine[]
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  lines       SalesReturnLine[]
+  salesOrder  SalesOrder        @relation(fields: [soId], references: [id])
+  customer    Customer          @relation(fields: [customerId], references: [id])
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -1055,15 +868,14 @@ model SalesReturn {
 }
 
 model SalesReturnLine {
-  id        String  @id @default(cuid())
-  returnId  String
-  soLineId  String
-  variantId String
-  quantity  Float
-  reason    String?
-
-  salesReturn SalesReturn    @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  id          String         @id @default(cuid())
+  returnId    String
+  soLineId    String
+  variantId   String
+  quantity    Float
+  reason      String?
   variant     ProductVariant @relation(fields: [variantId], references: [id])
+  salesReturn SalesReturn    @relation(fields: [returnId], references: [id], onDelete: Cascade)
 
   @@map("sales_return_lines")
 }
@@ -1083,52 +895,31 @@ model SalesReportProjection {
   @@map("reporting_sales_snapshot")
 }
 
-// ------------------------------------------------------
-// CAP-FULFILLMENT (STEP 9)
-// ------------------------------------------------------
-
-enum ShipmentStatus {
-  DRAFT
-  PICKING
-  PACKING
-  LOADED
-  READY_TO_DISPATCH
-  DISPATCHED
-  PARTIALLY_DELIVERED
-  DELIVERED
-  CANCELLED
-}
-
 model Shipment {
-  id          String         @id @default(cuid())
-  businessId  String
-  code        String
-  soId        String
-  warehouseId String
-  status      ShipmentStatus @default(DRAFT)
-
-  createdBy String?
-  updatedBy String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  salesOrder   SalesOrder     @relation(fields: [soId], references: [id])
-  warehouse    Warehouse      @relation(fields: [warehouseId], references: [id])
-  lines        ShipmentLine[]
-  deliveryNote DeliveryNote?
-
-  deliveryRunStopId String?
-  deliveryRunStop   DeliveryRunStop? @relation(fields: [deliveryRunStopId], references: [id])
-
-  weightKg  Decimal?
-  caseCount Decimal?
-  volume    Decimal?
-
+  id                 String           @id @default(cuid())
+  businessId         String
+  code               String
+  soId               String
+  warehouseId        String
+  status             ShipmentStatus   @default(DRAFT)
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  deletedAt          DateTime?
+  deliveryRunStopId  String?
+  weightKg           Decimal?
+  caseCount          Decimal?
+  volume             Decimal?
   proofOfDeliveryUrl String?
   receivedBy         String?
   receivedAt         DateTime?
   receiverPhone      String?
+  deliveryNote       DeliveryNote?
+  lines              ShipmentLine[]
+  deliveryRunStop    DeliveryRunStop? @relation(fields: [deliveryRunStopId], references: [id])
+  warehouse          Warehouse        @relation(fields: [warehouseId], references: [id])
+  salesOrder         SalesOrder       @relation(fields: [soId], references: [id])
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -1136,18 +927,17 @@ model Shipment {
 }
 
 model ShipmentLine {
-  id           String @id @default(cuid())
-  shipmentId   String
-  soLineId     String
-  variantId    String
-  requestedQty Float
-  pickedQty    Float  @default(0.0)
-  packedQty    Float  @default(0.0)
-  shippedQty   Float  @default(0.0)
-
-  shipment       Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-  salesOrderLine SalesOrderLine @relation(fields: [soLineId], references: [id])
+  id             String         @id @default(cuid())
+  shipmentId     String
+  soLineId       String
+  variantId      String
+  requestedQty   Float
+  pickedQty      Float          @default(0.0)
+  packedQty      Float          @default(0.0)
+  shippedQty     Float          @default(0.0)
   variant        ProductVariant @relation(fields: [variantId], references: [id])
+  salesOrderLine SalesOrderLine @relation(fields: [soLineId], references: [id])
+  shipment       Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@map("shipment_lines")
 }
@@ -1161,15 +951,1060 @@ model DeliveryNote {
   receiverSignature String?
   remarks           String?
   createdAt         DateTime  @default(now())
-
-  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  shipment          Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@map("delivery_notes")
 }
 
-// ==========================================
-// CAP-FINANCE LITE V1
-// ==========================================
+model CustomerInvoice {
+  id               String                  @id @default(cuid())
+  businessId       String
+  code             String
+  customerId       String
+  currencyId       String
+  totalAmount      Decimal
+  paidAmount       Decimal                 @default(0.0)
+  remainingAmount  Decimal
+  status           InvoiceStatus           @default(ISSUED)
+  collectionStatus InvoiceCollectionStatus @default(CURRENT)
+  sourceType       FinanceSourceType
+  sourceId         String
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  deletedAt        DateTime?
+  lines            CustomerInvoiceLine[]
+  business         Business                @relation(fields: [businessId], references: [id])
+  currency         Currency                @relation(fields: [currencyId], references: [id])
+  customer         Customer                @relation(fields: [customerId], references: [id])
+  payments         CustomerPayment[]
+  ewayBills        EWayBill[]
+
+  @@unique([businessId, code])
+  @@unique([sourceType, sourceId])
+  @@index([businessId])
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("customer_invoices")
+}
+
+model CustomerInvoiceLine {
+  id           String          @id @default(cuid())
+  invoiceId    String
+  description  String
+  quantity     Decimal
+  unitPrice    Decimal
+  totalPrice   Decimal
+  costCenterId String?
+  costCenter   CostCenter?     @relation(fields: [costCenterId], references: [id])
+  invoice      CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("customer_invoice_lines")
+}
+
+model CustomerPayment {
+  id                String                      @id @default(cuid())
+  businessId        String
+  customerId        String?
+  invoiceId         String?
+  amount            Decimal
+  unallocatedAmount Decimal                     @default(0.0)
+  currencyId        String
+  paymentDate       DateTime                    @default(now())
+  reference         String?
+  createdBy         String?
+  method            PaymentMethod               @default(BANK_TRANSFER)
+  allocations       CustomerPaymentAllocation[]
+  business          Business                    @relation(fields: [businessId], references: [id])
+  currency          Currency                    @relation(fields: [currencyId], references: [id])
+  invoice           CustomerInvoice?            @relation(fields: [invoiceId], references: [id])
+  customer          Customer?                   @relation(fields: [customerId], references: [id])
+
+  @@index([businessId])
+  @@index([invoiceId])
+  @@map("customer_payments")
+}
+
+model ReceivableEntry {
+  id             String                      @id @default(cuid())
+  businessId     String
+  customerId     String?
+  sourceType     ReceivableSourceType
+  sourceId       String
+  amount         Decimal
+  paidAmount     Decimal                     @default(0.0)
+  dueDate        DateTime?
+  status         ReceivableStatus            @default(OPEN)
+  journalEntryId String?
+  allocations    CustomerPaymentAllocation[]
+  customer       Customer?                   @relation(fields: [customerId], references: [id])
+  business       Business                    @relation(fields: [businessId], references: [id])
+
+  @@unique([sourceType, sourceId])
+  @@index([businessId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([customerId])
+  @@map("receivable_entries")
+}
+
+model CustomerPaymentAllocation {
+  id                String          @id @default(cuid())
+  businessId        String
+  paymentId         String
+  receivableEntryId String
+  amount            Decimal
+  business          Business        @relation(fields: [businessId], references: [id])
+  receivableEntry   ReceivableEntry @relation(fields: [receivableEntryId], references: [id], onDelete: Cascade)
+  payment           CustomerPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentId, receivableEntryId])
+  @@index([businessId])
+  @@map("customer_payment_allocations")
+}
+
+model SupplierBill {
+  id              String             @id @default(cuid())
+  businessId      String
+  code            String
+  supplierId      String
+  currencyId      String
+  totalAmount     Decimal
+  paidAmount      Decimal            @default(0.0)
+  remainingAmount Decimal
+  status          SupplierBillStatus @default(DRAFT)
+  sourceType      FinanceSourceType
+  sourceId        String
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  deletedAt       DateTime?
+  lines           SupplierBillLine[]
+  business        Business           @relation(fields: [businessId], references: [id])
+  currency        Currency           @relation(fields: [currencyId], references: [id])
+  supplier        Supplier           @relation(fields: [supplierId], references: [id])
+  payments        SupplierPayment[]
+
+  @@unique([businessId, code])
+  @@unique([sourceType, sourceId])
+  @@index([businessId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("supplier_bills")
+}
+
+model SupplierBillLine {
+  id           String        @id @default(cuid())
+  billId       String
+  description  String
+  quantity     Decimal
+  unitPrice    Decimal
+  totalPrice   Decimal
+  accountId    String
+  costCenterId String?
+  costCenter   CostCenter?   @relation(fields: [costCenterId], references: [id])
+  account      LedgerAccount @relation(fields: [accountId], references: [id])
+  bill         SupplierBill  @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@map("supplier_bill_lines")
+}
+
+model SupplierPayment {
+  id          String              @id @default(cuid())
+  businessId  String
+  billId      String?
+  amount      Decimal
+  currencyId  String
+  paymentDate DateTime            @default(now())
+  reference   String?
+  createdBy   String?
+  method      PaymentMethod       @default(BANK_TRANSFER)
+  allocations PaymentAllocation[]
+  business    Business            @relation(fields: [businessId], references: [id])
+  currency    Currency            @relation(fields: [currencyId], references: [id])
+  bill        SupplierBill?       @relation(fields: [billId], references: [id])
+
+  @@index([businessId])
+  @@index([billId])
+  @@map("supplier_payments")
+}
+
+model PayableEntry {
+  id             String              @id @default(cuid())
+  businessId     String
+  sourceType     PayableSourceType
+  sourceId       String
+  amount         Decimal
+  paidAmount     Decimal             @default(0.0)
+  dueDate        DateTime?
+  status         PayableStatus       @default(OPEN)
+  journalEntryId String?
+  business       Business            @relation(fields: [businessId], references: [id])
+  allocations    PaymentAllocation[]
+
+  @@unique([sourceType, sourceId])
+  @@index([businessId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("payable_entries")
+}
+
+model PaymentAllocation {
+  id             String          @id @default(cuid())
+  businessId     String
+  paymentId      String
+  payableEntryId String
+  amount         Decimal
+  business       Business        @relation(fields: [businessId], references: [id])
+  payableEntry   PayableEntry    @relation(fields: [payableEntryId], references: [id], onDelete: Cascade)
+  payment        SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentId, payableEntryId])
+  @@index([businessId])
+  @@map("payment_allocations")
+}
+
+model CashTransaction {
+  id          String              @id @default(cuid())
+  businessId  String
+  type        CashTransactionType
+  amount      Decimal
+  currencyId  String
+  reference   String?
+  description String?
+  sourceType  FinanceSourceType?
+  sourceId    String?
+  occurredAt  DateTime            @default(now())
+  createdBy   String?
+  business    Business            @relation(fields: [businessId], references: [id])
+  currency    Currency            @relation(fields: [currencyId], references: [id])
+
+  @@index([businessId])
+  @@map("cash_transactions")
+}
+
+model AccountingPeriod {
+  id         String       @id @default(cuid())
+  businessId String
+  name       String
+  startDate  DateTime
+  endDate    DateTime
+  status     PeriodStatus @default(OPEN)
+  closedAt   DateTime?
+  closedBy   String?
+  lockedAt   DateTime?
+  lockedBy   String?
+  business   Business     @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@map("accounting_periods")
+}
+
+model LedgerAccount {
+  id                String             @id @default(cuid())
+  businessId        String
+  accountCode       String
+  name              String
+  accountType       AccountTypeEnum
+  normalBalance     NormalBalance      @default(DEBIT)
+  isControlAccount  Boolean            @default(false)
+  isSystem          Boolean            @default(false)
+  allowPosting      Boolean            @default(true)
+  parentAccountId   String?
+  journalLines      JournalLine[]
+  parentAccount     LedgerAccount?     @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  childAccounts     LedgerAccount[]    @relation("AccountHierarchy")
+  business          Business           @relation(fields: [businessId], references: [id])
+  supplierBillLines SupplierBillLine[]
+
+  @@unique([businessId, accountCode])
+  @@index([businessId])
+  @@map("ledger_accounts")
+}
+
+model FinancialPeriod {
+  id         String                @id @default(cuid())
+  businessId String
+  name       String
+  startDate  DateTime
+  endDate    DateTime
+  status     FinancialPeriodStatus @default(OPEN)
+  closedBy   String?
+  closedAt   DateTime?
+  business   Business              @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, name])
+  @@index([businessId, startDate, endDate])
+  @@index([status])
+  @@map("financial_periods")
+}
+
+model JournalEntry {
+  id          String            @id @default(cuid())
+  businessId  String
+  date        DateTime          @default(now())
+  description String
+  reference   String?
+  sourceType  JournalSourceType
+  sourceId    String?
+  reason      String?
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  business    Business          @relation(fields: [businessId], references: [id])
+  lines       JournalLine[]
+
+  @@index([businessId])
+  @@index([sourceType, sourceId])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id             String        @id @default(cuid())
+  businessId     String
+  journalEntryId String
+  accountId      String
+  debit          Decimal       @default(0.0)
+  credit         Decimal       @default(0.0)
+  costCenterId   String?
+  costCenter     CostCenter?   @relation(fields: [costCenterId], references: [id])
+  business       Business      @relation(fields: [businessId], references: [id])
+  account        LedgerAccount @relation(fields: [accountId], references: [id])
+  journalEntry   JournalEntry  @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@map("journal_lines")
+}
+
+model Transporter {
+  id          String        @id @default(cuid())
+  businessId  String
+  code        String
+  name        String
+  gstin       String?
+  contactName String?
+  phone       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  runs        DeliveryRun[]
+  drivers     Driver[]
+  business    Business      @relation(fields: [businessId], references: [id])
+  vehicles    Vehicle[]
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@map("transporters")
+}
+
+model Vehicle {
+  id             String        @id @default(cuid())
+  businessId     String
+  transporterId  String
+  registration   String
+  type           String?
+  capacityKg     Decimal?
+  capacityCases  Decimal?
+  capacityVolume Decimal?
+  runs           DeliveryRun[]
+  drivers        Driver[]
+  business       Business      @relation(fields: [businessId], references: [id])
+  transporter    Transporter   @relation(fields: [transporterId], references: [id])
+
+  @@unique([businessId, registration])
+  @@index([transporterId])
+  @@index([businessId])
+  @@map("vehicles")
+}
+
+model Driver {
+  id                String        @id @default(cuid())
+  businessId        String
+  name              String
+  phone             String?
+  licenseNumber     String?
+  licenseExpiry     DateTime?
+  identityType      String?
+  identityReference String?
+  isExternal        Boolean       @default(false)
+  transporterId     String?
+  defaultVehicleId  String?
+  runs              DeliveryRun[]
+  business          Business      @relation(fields: [businessId], references: [id])
+  defaultVehicle    Vehicle?      @relation(fields: [defaultVehicleId], references: [id])
+  transporter       Transporter?  @relation(fields: [transporterId], references: [id])
+
+  @@index([businessId])
+  @@map("drivers")
+}
+
+model DeliveryRun {
+  id            String            @id @default(cuid())
+  businessId    String
+  code          String
+  transporterId String
+  vehicleId     String
+  driverId      String?
+  status        DeliveryRunStatus @default(SCHEDULED)
+  dispatchDate  DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  stops         DeliveryRunStop[]
+  business      Business          @relation(fields: [businessId], references: [id])
+  driver        Driver?           @relation(fields: [driverId], references: [id])
+  vehicle       Vehicle           @relation(fields: [vehicleId], references: [id])
+  transporter   Transporter       @relation(fields: [transporterId], references: [id])
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@map("delivery_runs")
+}
+
+model DeliveryRunStop {
+  id              String                @id @default(cuid())
+  businessId      String
+  deliveryRunId   String
+  stopSequence    Int
+  locationName    String?
+  customerId      String?
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  postalCode      String?
+  latitude        Decimal?
+  longitude       Decimal?
+  expectedArrival DateTime?
+  actualArrival   DateTime?
+  status          DeliveryRunStopStatus @default(PENDING)
+  business        Business              @relation(fields: [businessId], references: [id])
+  deliveryRun     DeliveryRun           @relation(fields: [deliveryRunId], references: [id])
+  shipments       Shipment[]
+
+  @@index([deliveryRunId])
+  @@index([businessId])
+  @@map("delivery_run_stops")
+}
+
+model EInvoice {
+  id                 String         @id @default(cuid())
+  customerInvoiceId  String
+  irn                String?
+  ackNumber          String?
+  ackDate            DateTime?
+  status             EInvoiceStatus
+  generationAttempts Int            @default(0)
+  lastError          String?
+  createdAt          DateTime       @default(now())
+}
+
+model EWayBill {
+  id                 String                   @id @default(cuid())
+  businessId         String
+  ewbNumber          String                   @unique
+  invoiceId          String
+  shipmentId         String?
+  generationSource   EWayBillGenerationSource @default(MANUAL)
+  status             EWayBillStatus           @default(DRAFT)
+  generationAttempts Int                      @default(0)
+  lastError          String?
+  validFrom          DateTime?
+  validUntil         DateTime?
+  generatedBy        String?
+  vehicleNumber      String?
+  transporterName    String?
+  cancelledAt        DateTime?
+  cancelReason       String?
+  remarks            String?
+  vehicleId          String?
+  transporterId      String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  invoice            CustomerInvoice          @relation(fields: [invoiceId], references: [id])
+  business           Business                 @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@map("eway_bills")
+}
+
+model BankAccount {
+  id              String                      @id @default(cuid())
+  businessId      String
+  name            String
+  accountNumber   String
+  ifscCode        String?
+  openingBalance  Decimal                     @default(0)
+  currencyId      String?
+  status          String                      @default("ACTIVE")
+  ledgerAccountId String                      @unique
+  business        Business                    @relation(fields: [businessId], references: [id])
+  sessions        BankReconciliationSession[]
+  summaries       BankReconciliationSummary[]
+  statements      BankStatement[]
+  transactions    BankTransaction[]
+}
+
+model BankStatement {
+  id             String            @id @default(cuid())
+  bankAccountId  String
+  importedAt     DateTime          @default(now())
+  importedBy     String
+  statementDate  DateTime
+  sourceFileName String
+  hash           String
+  bankAccount    BankAccount       @relation(fields: [bankAccountId], references: [id])
+  transactions   BankTransaction[]
+
+  @@unique([bankAccountId, hash])
+}
+
+model BankTransaction {
+  id            String                 @id @default(cuid())
+  bankAccountId String
+  statementId   String
+  date          DateTime
+  amount        Decimal
+  matchedAmount Decimal                @default(0)
+  reference     String?
+  narration     String?
+  status        BankTransactionStatus  @default(UNMATCHED)
+  statement     BankStatement          @relation(fields: [statementId], references: [id])
+  bankAccount   BankAccount            @relation(fields: [bankAccountId], references: [id])
+  matches       BankTransactionMatch[]
+}
+
+model BankTransactionMatch {
+  id                String          @id @default(cuid())
+  bankTransactionId String
+  customerPaymentId String?
+  supplierPaymentId String?
+  journalEntryId    String?
+  confidence        MatchConfidence
+  status            MatchStatus     @default(SUGGESTED)
+  matchedAt         DateTime        @default(now())
+  bankTransaction   BankTransaction @relation(fields: [bankTransactionId], references: [id])
+}
+
+model BankReconciliationSession {
+  id            String                      @id @default(cuid())
+  bankAccountId String
+  startDate     DateTime
+  endDate       DateTime
+  status        ReconciliationSessionStatus @default(DRAFT)
+  lockedAt      DateTime?
+  lockedBy      String?
+  bankAccount   BankAccount                 @relation(fields: [bankAccountId], references: [id])
+}
+
+model BankReconciliationSummary {
+  id               String      @id @default(cuid())
+  bankAccountId    String
+  bookBalance      Decimal
+  statementBalance Decimal
+  matchedAmount    Decimal
+  unmatchedAmount  Decimal
+  difference       Decimal
+  asOfDate         DateTime    @default(now())
+  bankAccount      BankAccount @relation(fields: [bankAccountId], references: [id])
+}
+
+model HsnSacCode {
+  id                String  @id @default(cuid())
+  businessId        String
+  code              String
+  description       String?
+  defaultTaxGroupId String?
+
+  @@index([businessId])
+  @@map("hsn_sac_codes")
+}
+
+model TaxGroup {
+  id          String    @id @default(cuid())
+  businessId  String
+  name        String
+  description String?
+  isDefault   Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  rates       TaxRate[]
+
+  @@index([businessId])
+  @@map("tax_groups")
+}
+
+model TaxRate {
+  id          String   @id @default(cuid())
+  taxGroupId  String
+  taxType     TaxType
+  ratePercent Decimal
+  taxGroup    TaxGroup @relation(fields: [taxGroupId], references: [id])
+
+  @@map("tax_rates")
+}
+
+model TaxSnapshot {
+  id             String       @id @default(cuid())
+  sourceType     String
+  sourceId       String
+  lineNumber     Int
+  taxTreatment   TaxTreatment
+  hsnSacCode     String?
+  taxableAmount  Decimal
+  cgstRate       Decimal      @default(0)
+  cgstAmount     Decimal      @default(0)
+  sgstRate       Decimal      @default(0)
+  sgstAmount     Decimal      @default(0)
+  igstRate       Decimal      @default(0)
+  igstAmount     Decimal      @default(0)
+  cessRate       Decimal      @default(0)
+  cessAmount     Decimal      @default(0)
+  totalTaxAmount Decimal      @default(0)
+  createdAt      DateTime     @default(now())
+
+  @@map("tax_snapshots")
+}
+
+model TaxPeriod {
+  id         String          @id @default(cuid())
+  businessId String
+  startDate  DateTime
+  endDate    DateTime
+  status     TaxPeriodStatus @default(OPEN)
+
+  @@index([businessId])
+  @@map("tax_periods")
+}
+
+model Gstr1Summary {
+  id           String  @id @default(cuid())
+  businessId   String
+  taxPeriod    String
+  taxableValue Decimal @default(0)
+  cgstAmount   Decimal @default(0)
+  sgstAmount   Decimal @default(0)
+  igstAmount   Decimal @default(0)
+  cessAmount   Decimal @default(0)
+  invoiceCount Int     @default(0)
+
+  @@index([businessId, taxPeriod])
+  @@map("gstr1_summaries")
+}
+
+model Gstr3BSummary {
+  id                  String  @id @default(cuid())
+  businessId          String
+  taxPeriod           String
+  outwardTaxableValue Decimal @default(0)
+  outputCgst          Decimal @default(0)
+  outputSgst          Decimal @default(0)
+  outputIgst          Decimal @default(0)
+  inputCgst           Decimal @default(0)
+  inputSgst           Decimal @default(0)
+  inputIgst           Decimal @default(0)
+  netTaxLiability     Decimal @default(0)
+
+  @@index([businessId, taxPeriod])
+  @@map("gstr3b_summaries")
+}
+
+model Gstr2BReconciliationItem {
+  id            String            @id @default(cuid())
+  businessId    String
+  supplierGstin String
+  invoiceNumber String
+  invoiceDate   DateTime
+  expectedTax   Decimal
+  actualTax     Decimal
+  status        Gstr2BMatchStatus
+
+  @@index([businessId])
+  @@map("gstr2b_reconciliation_items")
+}
+
+model AssetCategory {
+  id                               String       @id @default(cuid())
+  businessId                       String
+  name                             String
+  description                      String?
+  assetAccountId                   String
+  accumulatedDepreciationAccountId String
+  depreciationExpenseAccountId     String
+  assets                           FixedAsset[]
+
+  @@index([businessId])
+  @@map("asset_categories")
+}
+
+model AssetLocation {
+  id         String       @id @default(cuid())
+  businessId String
+  name       String
+  address    String?
+  assets     FixedAsset[]
+
+  @@index([businessId])
+  @@map("asset_locations")
+}
+
+model FixedAsset {
+  id                 String                 @id @default(cuid())
+  businessId         String
+  categoryId         String
+  locationId         String?
+  assetCode          String
+  name               String
+  purchaseDate       DateTime?
+  capitalizedAt      DateTime?
+  inServiceDate      DateTime?
+  cost               Decimal                @default(0)
+  residualValue      Decimal                @default(0)
+  usefulLifeMonths   Int                    @default(0)
+  depreciationMethod String                 @default("SLM")
+  status             FixedAssetStatus       @default(DRAFT)
+  acquisition        AssetAcquisition?
+  assignments        AssetAssignment[]
+  disposal           AssetDisposal?
+  schedules          DepreciationSchedule[]
+  location           AssetLocation?         @relation(fields: [locationId], references: [id])
+  category           AssetCategory          @relation(fields: [categoryId], references: [id])
+
+  @@index([businessId])
+  @@map("fixed_assets")
+}
+
+model AssetAssignment {
+  id           String     @id @default(cuid())
+  assetId      String
+  assignedTo   String
+  assignedDate DateTime
+  returnedDate DateTime?
+  asset        FixedAsset @relation(fields: [assetId], references: [id])
+
+  @@index([assetId])
+  @@map("asset_assignments")
+}
+
+model AssetAcquisition {
+  id              String                 @id @default(cuid())
+  businessId      String
+  description     String
+  supplierId      String?
+  supplierBillId  String?
+  acquisitionDate DateTime
+  cost            Decimal                @default(0)
+  status          AssetAcquisitionStatus @default(PENDING)
+  fixedAssetId    String?                @unique
+  fixedAsset      FixedAsset?            @relation(fields: [fixedAssetId], references: [id])
+
+  @@index([businessId])
+  @@map("asset_acquisitions")
+}
+
+model DepreciationSchedule {
+  id              String                     @id @default(cuid())
+  assetId         String
+  periodId        String
+  scheduledDate   DateTime
+  scheduledAmount Decimal                    @default(0)
+  postedAmount    Decimal                    @default(0)
+  postedAt        DateTime?
+  postedBy        String?
+  status          DepreciationScheduleStatus @default(PENDING)
+  journalEntryId  String?
+  asset           FixedAsset                 @relation(fields: [assetId], references: [id])
+
+  @@index([assetId])
+  @@map("depreciation_schedules")
+}
+
+model AssetDisposal {
+  id             String            @id @default(cuid())
+  assetId        String            @unique
+  disposalDate   DateTime
+  disposalType   AssetDisposalType
+  proceedsAmount Decimal           @default(0)
+  gainLossAmount Decimal           @default(0)
+  journalEntryId String?
+  asset          FixedAsset        @relation(fields: [assetId], references: [id])
+
+  @@map("asset_disposals")
+}
+
+model CostCenter {
+  id           String                @id @default(cuid())
+  businessId   String
+  code         String
+  name         String
+  type         CostCenterType
+  parentId     String?
+  path         String?
+  level        Int                   @default(0)
+  status       CostCenterStatus      @default(ACTIVE)
+  parent       CostCenter?           @relation("CostCenterHierarchy", fields: [parentId], references: [id])
+  children     CostCenter[]          @relation("CostCenterHierarchy")
+  invoiceLines CustomerInvoiceLine[]
+  journalLines JournalLine[]
+  billLines    SupplierBillLine[]
+
+  @@unique([businessId, code])
+  @@map("cost_centers")
+}
+
+model CostCenterAssignment {
+  id           String @id @default(cuid())
+  costCenterId String
+  entityType   String
+  entityId     String
+
+  @@map("cost_center_assignments")
+}
+
+model Budget {
+  id            String       @id @default(cuid())
+  businessId    String
+  name          String
+  version       Int          @default(1)
+  startPeriodId String
+  endPeriodId   String
+  status        BudgetStatus @default(DRAFT)
+  type          BudgetType   @default(OPERATING)
+  lines         BudgetLine[]
+
+  @@map("budgets")
+}
+
+model BudgetLine {
+  id           String  @id @default(cuid())
+  budgetId     String
+  periodId     String
+  accountId    String
+  costCenterId String?
+  amount       Decimal @default(0)
+  budget       Budget  @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetId, periodId, accountId, costCenterId])
+  @@map("budget_lines")
+}
+
+model DocumentAttachment {
+  id         String             @id @default(cuid())
+  businessId String
+  tenantId   String
+  sourceType DocumentSourceType
+  sourceId   String
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  checksum   String?
+  version    Int                @default(1)
+  storageUrl String
+  previewUrl String?
+  status     DocumentStatus     @default(ACTIVE)
+  uploadedBy String
+  uploadedAt DateTime           @default(now())
+
+  @@index([businessId, sourceType, sourceId])
+  @@map("document_attachment")
+}
+
+model ApprovalRequest {
+  id           String             @id @default(cuid())
+  businessId   String
+  tenantId     String
+  sourceType   ApprovalSourceType
+  sourceId     String
+  status       ApprovalStatus     @default(PENDING)
+  entityHash   String
+  snapshotJson String
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  actions      ApprovalAction[]
+
+  @@index([businessId, sourceType, sourceId])
+  @@map("approval_request")
+}
+
+model ApprovalAction {
+  id                String             @id @default(cuid())
+  approvalRequestId String
+  actionType        ApprovalActionType
+  performedBy       String
+  notes             String?
+  createdAt         DateTime           @default(now())
+  request           ApprovalRequest    @relation(fields: [approvalRequestId], references: [id])
+
+  @@map("approval_action")
+}
+
+model ComplianceJob {
+  id            String              @id @default(cuid())
+  businessId    String
+  tenantId      String
+  type          ComplianceJobType
+  status        ComplianceJobStatus @default(PENDING)
+  attempts      Int                 @default(0)
+  lastError     String?
+  payload       Json
+  correlationId String
+  nextAttemptAt DateTime?
+  createdAt     DateTime            @default(now())
+  processedAt   DateTime?
+
+  @@index([status, nextAttemptAt])
+  @@index([businessId])
+  @@map("compliance_jobs")
+}
+
+model AuditEvent {
+  id             String         @id @default(cuid())
+  businessId     String
+  tenantId       String
+  entityType     String
+  entityId       String
+  eventType      AuditEventType
+  correlationId  String
+  performedBy    String?
+  beforeSnapshot Json?
+  afterSnapshot  Json?
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+
+  @@index([businessId, entityType, entityId])
+  @@index([correlationId])
+  @@index([businessId, createdAt])
+  @@map("audit_events")
+}
+
+model RecurringCommitment {
+  id          String                  @id @default(cuid())
+  businessId  String
+  name        String
+  amount      Decimal
+  type        RecurringCommitmentType
+  frequency   CommitmentFrequency
+  nextDueDate DateTime
+  category    CashFlowCategory
+  active      Boolean                 @default(true)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  deletedAt   DateTime?
+  business    Business                @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@map("recurring_commitments")
+}
+
+enum ProductType {
+  PHYSICAL
+  SERVICE
+  CONSUMABLE
+  RAW_MATERIAL
+  FINISHED_GOOD
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+}
+
+enum WarehouseType {
+  STORAGE
+  DISTRIBUTION
+  TRANSIT
+  PRODUCTION
+}
+
+enum SupplierStatus {
+  PROSPECT
+  UNDER_REVIEW
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum SupplierRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  BLOCKED
+}
+
+enum PRStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum POStatus {
+  DRAFT
+  APPROVED
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+enum GoodsReceiptRequestStatus {
+  REQUESTED
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+enum CustomerStatus {
+  ACTIVE
+  ON_HOLD
+  INACTIVE
+}
+
+enum CustomerCreditStatus {
+  GOOD
+  HOLD
+  BLOCKED
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum SalesOrderStatus {
+  DRAFT
+  APPROVED
+  CONFIRMED
+  PARTIALLY_FULFILLED
+  FULFILLED
+  CANCELLED
+}
+
+enum SalesReturnStatus {
+  REQUESTED
+  APPROVED
+  RECEIVED
+  REJECTED
+}
+
+enum ShipmentStatus {
+  DRAFT
+  PICKING
+  PACKING
+  LOADED
+  READY_TO_DISPATCH
+  DISPATCHED
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+}
 
 enum InvoiceStatus {
   DRAFT
@@ -1206,83 +2041,6 @@ enum InvoiceCollectionStatus {
   ESCALATED
 }
 
-model CustomerInvoice {
-  id               String                  @id @default(cuid())
-  businessId       String
-  code             String
-  customerId       String
-  currencyId       String
-  totalAmount      Decimal
-  paidAmount       Decimal                 @default(0.0)
-  remainingAmount  Decimal
-  status           InvoiceStatus           @default(ISSUED)
-  collectionStatus InvoiceCollectionStatus @default(CURRENT)
-  sourceType       FinanceSourceType
-  sourceId         String
-
-  lines     CustomerInvoiceLine[]
-  payments  CustomerPayment[]
-  ewayBills EWayBill[]
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  customer Customer @relation(fields: [customerId], references: [id])
-  currency Currency @relation(fields: [currencyId], references: [id])
-  business Business @relation(fields: [businessId], references: [id])
-
-  @@unique([businessId, code])
-  @@unique([sourceType, sourceId])
-  @@index([businessId])
-  @@index([customerId])
-  @@index([status])
-  @@index([createdAt])
-  @@map("customer_invoices")
-}
-
-model CustomerInvoiceLine {
-  id          String  @id @default(cuid())
-  invoiceId   String
-  description String
-  quantity    Decimal
-  unitPrice   Decimal
-  totalPrice  Decimal
-
-  invoice CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-
-  costCenterId String?
-  costCenter   CostCenter? @relation(fields: [costCenterId], references: [id])
-
-  @@index([invoiceId])
-  @@map("customer_invoice_lines")
-}
-
-model CustomerPayment {
-  id                String        @id @default(cuid())
-  businessId        String
-  customerId        String?
-  invoiceId         String? // Legacy or direct link
-  amount            Decimal
-  unallocatedAmount Decimal       @default(0.0)
-  currencyId        String
-  paymentDate       DateTime      @default(now())
-  reference         String?
-  createdBy         String?
-  method            PaymentMethod @default(BANK_TRANSFER)
-
-  customer Customer? @relation(fields: [customerId], references: [id])
-
-  invoice     CustomerInvoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  currency    Currency                    @relation(fields: [currencyId], references: [id])
-  business    Business                    @relation(fields: [businessId], references: [id])
-  allocations CustomerPaymentAllocation[]
-
-  @@index([businessId])
-  @@index([invoiceId])
-  @@map("customer_payments")
-}
-
 enum ReceivableSourceType {
   CUSTOMER_INVOICE
 }
@@ -1294,47 +2052,6 @@ enum ReceivableStatus {
   WRITTEN_OFF
 }
 
-model ReceivableEntry {
-  id         String               @id @default(cuid())
-  businessId String
-  customerId String?
-  sourceType ReceivableSourceType
-  sourceId   String
-  amount     Decimal
-  paidAmount Decimal              @default(0.0)
-  dueDate    DateTime?
-  status     ReceivableStatus     @default(OPEN)
-
-  journalEntryId String?
-
-  business    Business                    @relation(fields: [businessId], references: [id])
-  customer    Customer?                   @relation(fields: [customerId], references: [id])
-  allocations CustomerPaymentAllocation[]
-
-  @@unique([sourceType, sourceId])
-  @@index([businessId])
-  @@index([status])
-  @@index([dueDate])
-  @@index([customerId])
-  @@map("receivable_entries")
-}
-
-model CustomerPaymentAllocation {
-  id                String  @id @default(cuid())
-  businessId        String
-  paymentId         String
-  receivableEntryId String
-  amount            Decimal
-
-  payment         CustomerPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  receivableEntry ReceivableEntry @relation(fields: [receivableEntryId], references: [id], onDelete: Cascade)
-  business        Business        @relation(fields: [businessId], references: [id])
-
-  @@unique([paymentId, receivableEntryId])
-  @@index([businessId])
-  @@map("customer_payment_allocations")
-}
-
 enum SupplierBillStatus {
   DRAFT
   PENDING_APPROVAL
@@ -1344,85 +2061,11 @@ enum SupplierBillStatus {
   CANCELLED
 }
 
-model SupplierBill {
-  id              String             @id @default(cuid())
-  businessId      String
-  code            String
-  supplierId      String
-  currencyId      String
-  totalAmount     Decimal
-  paidAmount      Decimal            @default(0.0)
-  remainingAmount Decimal
-  status          SupplierBillStatus @default(DRAFT)
-  sourceType      FinanceSourceType
-  sourceId        String
-
-  lines    SupplierBillLine[]
-  payments SupplierPayment[]
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  supplier Supplier @relation(fields: [supplierId], references: [id])
-  currency Currency @relation(fields: [currencyId], references: [id])
-  business Business @relation(fields: [businessId], references: [id])
-
-  @@unique([businessId, code])
-  @@unique([sourceType, sourceId])
-  @@index([businessId])
-  @@index([supplierId])
-  @@index([status])
-  @@index([createdAt])
-  @@map("supplier_bills")
-}
-
-model SupplierBillLine {
-  id          String  @id @default(cuid())
-  billId      String
-  description String
-  quantity    Decimal
-  unitPrice   Decimal
-  totalPrice  Decimal
-
-  bill SupplierBill @relation(fields: [billId], references: [id], onDelete: Cascade)
-
-  accountId String
-  account   LedgerAccount @relation(fields: [accountId], references: [id])
-
-  costCenterId String?
-  costCenter   CostCenter? @relation(fields: [costCenterId], references: [id])
-
-  @@index([billId])
-  @@map("supplier_bill_lines")
-}
-
 enum PaymentMethod {
   CASH
   BANK_TRANSFER
   UPI
   CHEQUE
-}
-
-model SupplierPayment {
-  id          String        @id @default(cuid())
-  businessId  String
-  billId      String? // Legacy or optional direct link
-  amount      Decimal
-  currencyId  String
-  paymentDate DateTime      @default(now())
-  reference   String?
-  createdBy   String?
-  method      PaymentMethod @default(BANK_TRANSFER)
-
-  bill        SupplierBill?       @relation(fields: [billId], references: [id], onDelete: SetNull)
-  currency    Currency            @relation(fields: [currencyId], references: [id])
-  business    Business            @relation(fields: [businessId], references: [id])
-  allocations PaymentAllocation[]
-
-  @@index([businessId])
-  @@index([billId])
-  @@map("supplier_payments")
 }
 
 enum PayableSourceType {
@@ -1435,92 +2078,10 @@ enum PayableStatus {
   PAID
 }
 
-model PayableEntry {
-  id         String            @id @default(cuid())
-  businessId String
-  sourceType PayableSourceType
-  sourceId   String
-  amount     Decimal
-  paidAmount Decimal           @default(0.0)
-  dueDate    DateTime?
-  status     PayableStatus     @default(OPEN)
-
-  journalEntryId String?
-
-  business    Business            @relation(fields: [businessId], references: [id])
-  allocations PaymentAllocation[]
-
-  @@unique([sourceType, sourceId])
-  @@index([businessId])
-  @@index([status])
-  @@index([dueDate])
-  @@map("payable_entries")
-}
-
-model PaymentAllocation {
-  id             String  @id @default(cuid())
-  businessId     String
-  paymentId      String
-  payableEntryId String
-  amount         Decimal
-
-  payment      SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  payableEntry PayableEntry    @relation(fields: [payableEntryId], references: [id], onDelete: Cascade)
-  business     Business        @relation(fields: [businessId], references: [id])
-
-  @@unique([paymentId, payableEntryId])
-  @@index([businessId])
-  @@map("payment_allocations")
-}
-
-model CashTransaction {
-  id          String              @id @default(cuid())
-  businessId  String
-  type        CashTransactionType
-  amount      Decimal
-  currencyId  String
-  reference   String?
-  description String?
-  sourceType  FinanceSourceType?
-  sourceId    String?
-  occurredAt  DateTime            @default(now())
-  createdBy   String?
-
-  currency Currency @relation(fields: [currencyId], references: [id])
-  business Business @relation(fields: [businessId], references: [id])
-
-  @@index([businessId])
-  @@map("cash_transactions")
-}
-
-// ------------------------------------------------------
-// CAP-FINANCE-GL (RC4 Phase 1)
-// ------------------------------------------------------
-
 enum PeriodStatus {
   OPEN
   CLOSED
   LOCKED
-}
-
-model AccountingPeriod {
-  id         String       @id @default(cuid())
-  businessId String
-  name       String // e.g. "Q1-2026" or "Jul-2026"
-  startDate  DateTime
-  endDate    DateTime
-  status     PeriodStatus @default(OPEN)
-
-  closedAt DateTime?
-  closedBy String?
-  lockedAt DateTime?
-  lockedBy String?
-
-  business Business @relation(fields: [businessId], references: [id])
-
-  @@unique([businessId, name])
-  @@index([businessId])
-  @@map("accounting_periods")
 }
 
 enum AccountTypeEnum {
@@ -1534,30 +2095,6 @@ enum AccountTypeEnum {
 enum NormalBalance {
   DEBIT
   CREDIT
-}
-
-model LedgerAccount {
-  id               String          @id @default(cuid())
-  businessId       String
-  accountCode      String
-  name             String
-  accountType      AccountTypeEnum
-  normalBalance    NormalBalance   @default(DEBIT)
-  isControlAccount Boolean         @default(false)
-  isSystem         Boolean         @default(false)
-  allowPosting     Boolean         @default(true)
-  parentAccountId  String?
-
-  business      Business        @relation(fields: [businessId], references: [id])
-  parentAccount LedgerAccount?  @relation("AccountHierarchy", fields: [parentAccountId], references: [id], onDelete: SetNull)
-  childAccounts LedgerAccount[] @relation("AccountHierarchy")
-
-  journalLines      JournalLine[]
-  supplierBillLines SupplierBillLine[]
-
-  @@unique([businessId, accountCode])
-  @@index([businessId])
-  @@map("ledger_accounts")
 }
 
 enum JournalSourceType {
@@ -1574,83 +2111,11 @@ enum JournalSourceType {
   FIXED_ASSET_DISPOSAL
 }
 
-// ------------------------------------------------------
-// RC6.2 FINANCIAL REPORTING & PERIOD CLOSE
-// ------------------------------------------------------
-
 enum FinancialPeriodStatus {
   OPEN
   SOFT_CLOSED
   HARD_CLOSED
 }
-
-model FinancialPeriod {
-  id         String                @id @default(cuid())
-  businessId String
-  name       String // e.g., "June 2026"
-  startDate  DateTime
-  endDate    DateTime
-  status     FinancialPeriodStatus @default(OPEN)
-
-  closedBy String?
-  closedAt DateTime?
-
-  business Business @relation(fields: [businessId], references: [id])
-
-  @@unique([businessId, name])
-  @@index([businessId, startDate, endDate])
-  @@index([status])
-  @@map("financial_periods")
-}
-
-model JournalEntry {
-  id          String            @id @default(cuid())
-  businessId  String
-  date        DateTime          @default(now())
-  description String
-  reference   String? // E.g., Invoice Code or Bill Code
-  sourceType  JournalSourceType
-  sourceId    String? // E.g., ID of the invoice or bill
-
-  reason     String?
-  approvedBy String?
-  approvedAt DateTime?
-
-  lines JournalLine[]
-
-  business Business @relation(fields: [businessId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([businessId])
-  @@index([sourceType, sourceId])
-  @@map("journal_entries")
-}
-
-model JournalLine {
-  id             String  @id @default(cuid())
-  businessId     String
-  journalEntryId String
-  accountId      String
-  debit          Decimal @default(0.0)
-  credit         Decimal @default(0.0)
-
-  journalEntry JournalEntry  @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-  account      LedgerAccount @relation(fields: [accountId], references: [id])
-  business     Business      @relation(fields: [businessId], references: [id])
-
-  costCenterId String?
-  costCenter   CostCenter? @relation(fields: [costCenterId], references: [id])
-
-  @@index([journalEntryId])
-  @@index([accountId])
-  @@map("journal_lines")
-}
-
-// ==========================================
-// CAP-LOGISTICS V1
-// ==========================================
 
 enum DeliveryRunStatus {
   SCHEDULED
@@ -1682,190 +2147,11 @@ enum EWayBillGenerationSource {
   NIC_API
 }
 
-model Transporter {
-  id          String  @id @default(cuid())
-  businessId  String
-  code        String
-  name        String
-  gstin       String? // Tax ID
-  contactName String?
-  phone       String?
-
-  vehicles Vehicle[]
-  runs     DeliveryRun[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id])
-  drivers  Driver[]
-
-  @@unique([businessId, code])
-  @@index([businessId])
-  @@map("transporters")
-}
-
-model Vehicle {
-  id             String   @id @default(cuid())
-  businessId     String
-  transporterId  String
-  registration   String // e.g. MH-01-AB-1234
-  type           String? // e.g. "Heavy Truck", "Van"
-  capacityKg     Decimal?
-  capacityCases  Decimal?
-  capacityVolume Decimal?
-
-  transporter Transporter   @relation(fields: [transporterId], references: [id])
-  runs        DeliveryRun[]
-  drivers     Driver[]
-  business    Business      @relation(fields: [businessId], references: [id])
-
-  @@unique([businessId, registration])
-  @@index([transporterId])
-  @@index([businessId])
-  @@map("vehicles")
-}
-
-model Driver {
-  id                String    @id @default(cuid())
-  businessId        String
-  name              String
-  phone             String?
-  licenseNumber     String?
-  licenseExpiry     DateTime?
-  identityType      String?
-  identityReference String?
-  isExternal        Boolean   @default(false)
-
-  transporterId    String?
-  defaultVehicleId String?
-
-  transporter    Transporter?  @relation(fields: [transporterId], references: [id])
-  defaultVehicle Vehicle?      @relation(fields: [defaultVehicleId], references: [id])
-  runs           DeliveryRun[]
-  business       Business      @relation(fields: [businessId], references: [id])
-
-  @@index([businessId])
-  @@map("drivers")
-}
-
-model DeliveryRun {
-  id            String            @id @default(cuid())
-  businessId    String
-  code          String
-  transporterId String
-  vehicleId     String
-  driverId      String?
-  status        DeliveryRunStatus @default(SCHEDULED)
-  dispatchDate  DateTime?
-
-  transporter Transporter @relation(fields: [transporterId], references: [id])
-  vehicle     Vehicle     @relation(fields: [vehicleId], references: [id])
-  driver      Driver?     @relation(fields: [driverId], references: [id])
-  business    Business    @relation(fields: [businessId], references: [id])
-
-  stops DeliveryRunStop[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([businessId, code])
-  @@index([businessId])
-  @@map("delivery_runs")
-}
-
 enum DeliveryRunStopStatus {
   PENDING
   ARRIVED
   COMPLETED
   SKIPPED
-}
-
-model DeliveryRunStop {
-  id            String @id @default(cuid())
-  businessId    String
-  deliveryRunId String
-  stopSequence  Int // 1, 2, 3...
-
-  locationName String?
-  customerId   String? // Optional link to Customer
-
-  addressLine1 String?
-  addressLine2 String?
-  city         String?
-  state        String?
-  postalCode   String?
-  latitude     Decimal?
-  longitude    Decimal?
-
-  expectedArrival DateTime?
-  actualArrival   DateTime?
-
-  status DeliveryRunStopStatus @default(PENDING)
-
-  deliveryRun DeliveryRun @relation(fields: [deliveryRunId], references: [id])
-  business    Business    @relation(fields: [businessId], references: [id])
-  shipments   Shipment[]
-
-  @@index([deliveryRunId])
-  @@index([businessId])
-  @@map("delivery_run_stops")
-}
-
-model EInvoice {
-  id String @id @default(cuid())
-
-  customerInvoiceId String
-
-  irn String?
-
-  ackNumber String?
-  ackDate   DateTime?
-
-  status EInvoiceStatus
-
-  generationAttempts Int @default(0)
-
-  lastError String?
-
-  createdAt DateTime @default(now())
-}
-
-model EWayBill {
-  id               String                   @id @default(cuid())
-  businessId       String
-  ewbNumber        String                   @unique
-  invoiceId        String
-  shipmentId       String?
-  generationSource EWayBillGenerationSource @default(MANUAL)
-
-  status EWayBillStatus @default(DRAFT)
-
-  generationAttempts Int     @default(0)
-  lastError          String?
-
-  validFrom   DateTime?
-  validUntil  DateTime?
-  generatedBy String?
-
-  vehicleNumber   String?
-  transporterName String?
-
-  cancelledAt  DateTime?
-  cancelReason String?
-  remarks      String?
-
-  vehicleId     String?
-  transporterId String?
-
-  business Business        @relation(fields: [businessId], references: [id])
-  invoice  CustomerInvoice @relation(fields: [invoiceId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([businessId])
-  @@map("eway_bills")
 }
 
 enum BankTransactionStatus {
@@ -1889,152 +2175,17 @@ enum ReconciliationSessionStatus {
   LOCKED
 }
 
-model BankAccount {
-  id              String  @id @default(cuid())
-  businessId      String
-  name            String // e.g., "HDFC Current Account"
-  accountNumber   String
-  ifscCode        String?
-  openingBalance  Decimal @default(0)
-  currencyId      String?
-  status          String  @default("ACTIVE")
-  ledgerAccountId String  @unique // Strict 1:1 GL Mapping
-
-  statements   BankStatement[]
-  transactions BankTransaction[]
-  sessions     BankReconciliationSession[]
-  summaries    BankReconciliationSummary[]
-
-  business Business @relation(fields: [businessId], references: [id])
-}
-
-model BankStatement {
-  id             String   @id @default(cuid())
-  bankAccountId  String
-  importedAt     DateTime @default(now())
-  importedBy     String
-  statementDate  DateTime
-  sourceFileName String
-  hash           String
-
-  transactions BankTransaction[]
-
-  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id])
-
-  @@unique([bankAccountId, hash])
-}
-
-model BankTransaction {
-  id            String                @id @default(cuid())
-  bankAccountId String
-  statementId   String
-  date          DateTime
-  amount        Decimal // Positive = Inflow, Negative = Outflow
-  matchedAmount Decimal               @default(0)
-  reference     String?
-  narration     String?
-  status        BankTransactionStatus @default(UNMATCHED)
-
-  bankAccount BankAccount            @relation(fields: [bankAccountId], references: [id])
-  statement   BankStatement          @relation(fields: [statementId], references: [id])
-  matches     BankTransactionMatch[]
-}
-
 enum MatchStatus {
   SUGGESTED
   APPROVED
   REJECTED
 }
 
-model BankTransactionMatch {
-  id                String @id @default(cuid())
-  bankTransactionId String
-
-  // Operational Event Targets
-  customerPaymentId String?
-  supplierPaymentId String?
-
-  // Financial Event Target
-  journalEntryId String?
-
-  confidence MatchConfidence
-  status     MatchStatus     @default(SUGGESTED)
-  matchedAt  DateTime        @default(now())
-
-  bankTransaction BankTransaction @relation(fields: [bankTransactionId], references: [id])
-}
-
-model BankReconciliationSession {
-  id            String                      @id @default(cuid())
-  bankAccountId String
-  startDate     DateTime
-  endDate       DateTime
-  status        ReconciliationSessionStatus @default(DRAFT)
-
-  lockedAt DateTime?
-  lockedBy String?
-
-  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id])
-}
-
-model BankReconciliationSummary {
-  id               String   @id @default(cuid())
-  bankAccountId    String
-  bookBalance      Decimal
-  statementBalance Decimal
-  matchedAmount    Decimal
-  unmatchedAmount  Decimal
-  difference       Decimal
-  asOfDate         DateTime @default(now())
-
-  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id])
-}
-
-// ------------------------------------------------------
-// RC5.3 TAX MASTER (GST)
-// ------------------------------------------------------
-
 enum TaxType {
   CGST
   SGST
   IGST
   CESS
-}
-
-model HsnSacCode {
-  id                String  @id @default(cuid())
-  businessId        String
-  code              String
-  description       String?
-  defaultTaxGroupId String?
-
-  @@index([businessId])
-  @@map("hsn_sac_codes")
-}
-
-model TaxGroup {
-  id          String  @id @default(cuid())
-  businessId  String
-  name        String // e.g., "GST 18%"
-  description String?
-  isDefault   Boolean @default(false)
-  isActive    Boolean @default(true)
-
-  rates TaxRate[]
-
-  @@index([businessId])
-  @@map("tax_groups")
-}
-
-model TaxRate {
-  id          String  @id @default(cuid())
-  taxGroupId  String
-  taxType     TaxType
-  ratePercent Decimal // e.g., 9.0 for CGST
-
-  taxGroup TaxGroup @relation(fields: [taxGroupId], references: [id])
-
-  @@map("tax_rates")
 }
 
 enum TaxTreatment {
@@ -2045,94 +2196,10 @@ enum TaxTreatment {
   EXEMPT
 }
 
-model TaxSnapshot {
-  id         String @id @default(cuid())
-  sourceType String // e.g., CUSTOMER_INVOICE, SUPPLIER_BILL
-  sourceId   String
-  lineNumber Int
-
-  taxTreatment TaxTreatment
-  hsnSacCode   String?
-
-  taxableAmount Decimal
-
-  cgstRate   Decimal @default(0)
-  cgstAmount Decimal @default(0)
-
-  sgstRate   Decimal @default(0)
-  sgstAmount Decimal @default(0)
-
-  igstRate   Decimal @default(0)
-  igstAmount Decimal @default(0)
-
-  cessRate   Decimal @default(0)
-  cessAmount Decimal @default(0)
-
-  totalTaxAmount Decimal @default(0)
-
-  createdAt DateTime @default(now())
-
-  @@map("tax_snapshots")
-}
-
-// ------------------------------------------------------
-// RC5.3 GST RETURNS & PERIODS (Phase 4)
-// ------------------------------------------------------
-
 enum TaxPeriodStatus {
   OPEN
   FILED
   LOCKED
-}
-
-model TaxPeriod {
-  id         String          @id @default(cuid())
-  businessId String
-  startDate  DateTime
-  endDate    DateTime
-  status     TaxPeriodStatus @default(OPEN)
-
-  @@index([businessId])
-  @@map("tax_periods")
-}
-
-model Gstr1Summary {
-  id         String @id @default(cuid())
-  businessId String
-  taxPeriod  String // e.g. "2026-07"
-
-  taxableValue Decimal @default(0)
-
-  cgstAmount Decimal @default(0)
-  sgstAmount Decimal @default(0)
-  igstAmount Decimal @default(0)
-  cessAmount Decimal @default(0)
-
-  invoiceCount Int @default(0)
-
-  @@index([businessId, taxPeriod])
-  @@map("gstr1_summaries")
-}
-
-model Gstr3BSummary {
-  id         String @id @default(cuid())
-  businessId String
-  taxPeriod  String
-
-  outwardTaxableValue Decimal @default(0)
-
-  outputCgst Decimal @default(0)
-  outputSgst Decimal @default(0)
-  outputIgst Decimal @default(0)
-
-  inputCgst Decimal @default(0)
-  inputSgst Decimal @default(0)
-  inputIgst Decimal @default(0)
-
-  netTaxLiability Decimal @default(0)
-
-  @@index([businessId, taxPeriod])
-  @@map("gstr3b_summaries")
 }
 
 enum Gstr2BMatchStatus {
@@ -2141,27 +2208,6 @@ enum Gstr2BMatchStatus {
   MISSING
 }
 
-model Gstr2BReconciliationItem {
-  id            String @id @default(cuid())
-  businessId    String
-  supplierGstin String
-
-  invoiceNumber String
-  invoiceDate   DateTime
-
-  expectedTax Decimal
-  actualTax   Decimal
-
-  status Gstr2BMatchStatus
-
-  @@index([businessId])
-  @@map("gstr2b_reconciliation_items")
-}
-
-// ------------------------------------------------------
-// RC5.4 FIXED ASSETS (Phase 1)
-// ------------------------------------------------------
-
 enum FixedAssetStatus {
   DRAFT
   ACTIVE
@@ -2169,108 +2215,10 @@ enum FixedAssetStatus {
   DISPOSED
 }
 
-model AssetCategory {
-  id          String  @id @default(cuid())
-  businessId  String
-  name        String
-  description String?
-
-  // Rule 2: Asset Categories Own GL Mapping
-  assetAccountId                   String // e.g. 1600 Computers
-  accumulatedDepreciationAccountId String // e.g. 1610 Accumulated Dep
-  depreciationExpenseAccountId     String // e.g. 5200 Dep Expense
-
-  assets FixedAsset[]
-
-  @@index([businessId])
-  @@map("asset_categories")
-}
-
-model AssetLocation {
-  id         String       @id @default(cuid())
-  businessId String
-  name       String
-  address    String?
-  assets     FixedAsset[]
-
-  @@index([businessId])
-  @@map("asset_locations")
-}
-
-model FixedAsset {
-  id         String  @id @default(cuid())
-  businessId String
-  categoryId String
-  locationId String?
-
-  assetCode String // e.g., LAP-001
-  name      String // e.g., Laptop Dell Latitude
-
-  purchaseDate  DateTime?
-  capitalizedAt DateTime?
-  inServiceDate DateTime?
-
-  cost             Decimal @default(0)
-  residualValue    Decimal @default(0)
-  usefulLifeMonths Int     @default(0)
-
-  depreciationMethod String @default("SLM") // SLM only for RC5.4
-
-  status FixedAssetStatus @default(DRAFT)
-
-  category    AssetCategory          @relation(fields: [categoryId], references: [id])
-  location    AssetLocation?         @relation(fields: [locationId], references: [id])
-  assignments AssetAssignment[]
-  acquisition AssetAcquisition?
-  schedules   DepreciationSchedule[]
-  disposal    AssetDisposal?
-
-  @@index([businessId])
-  @@map("fixed_assets")
-}
-
-model AssetAssignment {
-  id           String    @id @default(cuid())
-  assetId      String
-  assignedTo   String // User/Employee ID or Name
-  assignedDate DateTime
-  returnedDate DateTime?
-
-  asset FixedAsset @relation(fields: [assetId], references: [id])
-
-  @@index([assetId])
-  @@map("asset_assignments")
-}
-
-// ------------------------------------------------------
-// RC5.4 FIXED ASSETS (Phases 2 & 3)
-// ------------------------------------------------------
-
 enum AssetAcquisitionStatus {
   PENDING
   CAPITALIZED
   CANCELLED
-}
-
-model AssetAcquisition {
-  id         String @id @default(cuid())
-  businessId String
-
-  description    String
-  supplierId     String?
-  supplierBillId String?
-
-  acquisitionDate DateTime
-  cost            Decimal  @default(0)
-
-  status AssetAcquisitionStatus @default(PENDING)
-
-  // Link to the resulting fixed asset
-  fixedAssetId String?     @unique
-  fixedAsset   FixedAsset? @relation(fields: [fixedAssetId], references: [id])
-
-  @@index([businessId])
-  @@map("asset_acquisitions")
 }
 
 enum DepreciationScheduleStatus {
@@ -2279,57 +2227,11 @@ enum DepreciationScheduleStatus {
   SKIPPED
 }
 
-model DepreciationSchedule {
-  id String @id @default(cuid())
-
-  assetId String
-  asset   FixedAsset @relation(fields: [assetId], references: [id])
-
-  periodId String // E.g. "2027-01" or reference to TaxPeriod.id if desired
-
-  scheduledDate   DateTime
-  scheduledAmount Decimal   @default(0)
-  postedAmount    Decimal   @default(0)
-  postedAt        DateTime?
-  postedBy        String?
-
-  status DepreciationScheduleStatus @default(PENDING)
-
-  journalEntryId String?
-
-  @@index([assetId])
-  @@map("depreciation_schedules")
-}
-
-// ------------------------------------------------------
-// RC5.4 FIXED ASSETS (Phases 4 & 5)
-// ------------------------------------------------------
-
 enum AssetDisposalType {
   SALE
   SCRAP
   WRITE_OFF
 }
-
-model AssetDisposal {
-  id String @id @default(cuid())
-
-  assetId String     @unique
-  asset   FixedAsset @relation(fields: [assetId], references: [id])
-
-  disposalDate   DateTime
-  disposalType   AssetDisposalType
-  proceedsAmount Decimal           @default(0)
-  gainLossAmount Decimal           @default(0)
-
-  journalEntryId String?
-
-  @@map("asset_disposals")
-}
-
-// ------------------------------------------------------
-// RC5.5 MANAGEMENT ACCOUNTING & BUDGETS
-// ------------------------------------------------------
 
 enum CostCenterStatus {
   ACTIVE
@@ -2346,40 +2248,6 @@ enum CostCenterType {
   OTHER
 }
 
-model CostCenter {
-  id         String @id @default(cuid())
-  businessId String
-
-  code String
-  name String
-  type CostCenterType
-
-  parentId String?
-  parent   CostCenter?  @relation("CostCenterHierarchy", fields: [parentId], references: [id])
-  children CostCenter[] @relation("CostCenterHierarchy")
-
-  path  String? // e.g. "CORP/MKT"
-  level Int     @default(0)
-
-  status CostCenterStatus @default(ACTIVE)
-
-  journalLines JournalLine[]
-  invoiceLines CustomerInvoiceLine[]
-  billLines    SupplierBillLine[]
-
-  @@unique([businessId, code])
-  @@map("cost_centers")
-}
-
-model CostCenterAssignment {
-  id           String @id @default(cuid())
-  costCenterId String
-  entityType   String
-  entityId     String
-
-  @@map("cost_center_assignments")
-}
-
 enum BudgetStatus {
   DRAFT
   APPROVED
@@ -2387,47 +2255,11 @@ enum BudgetStatus {
   ARCHIVED
 }
 
-model Budget {
-  id         String @id @default(cuid())
-  businessId String
-  name       String // e.g. "FY2027 Budget v1"
-  version    Int    @default(1)
-
-  startPeriodId String // Link to AccountingPeriod (e.g., "2027-01")
-  endPeriodId   String // Link to AccountingPeriod (e.g., "2027-12")
-
-  status BudgetStatus @default(DRAFT)
-  type   BudgetType   @default(OPERATING)
-
-  lines BudgetLine[]
-
-  @@map("budgets")
-}
-
 enum BudgetType {
   OPERATING
   CAPITAL
   CASHFLOW
 }
-
-model BudgetLine {
-  id       String @id @default(cuid())
-  budgetId String
-  budget   Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
-
-  periodId     String // Link to AccountingPeriod (e.g., "2027-01")
-  accountId    String // Link to LedgerAccount
-  costCenterId String? // Optional CostCenter dimension
-
-  amount Decimal @default(0) // The targeted budget amount
-
-  @@unique([budgetId, periodId, accountId, costCenterId])
-  @@map("budget_lines")
-}
-
-// ------------------------------------------------------
-// DOCUMENTS & ATTACHMENTS (RC5.7)
-// ------------------------------------------------------
 
 enum DocumentSourceType {
   CUSTOMER_INVOICE
@@ -2447,35 +2279,6 @@ enum DocumentStatus {
   SUPERSEDED
   ARCHIVED
 }
-
-model DocumentAttachment {
-  id         String @id @default(cuid())
-  businessId String
-  tenantId   String
-
-  sourceType DocumentSourceType
-  sourceId   String
-
-  fileName  String
-  mimeType  String
-  sizeBytes Int
-  checksum  String? // To detect duplicates
-  version   Int     @default(1)
-
-  storageUrl String // The Local/S3 key or file path
-  previewUrl String? // For image thumbnails or PDF previews
-  status     DocumentStatus @default(ACTIVE)
-
-  uploadedBy String // User ID
-  uploadedAt DateTime @default(now())
-
-  @@index([businessId, sourceType, sourceId])
-  @@map("document_attachment")
-}
-
-// ------------------------------------------------------
-// APPROVAL WORKFLOWS (RC5.8)
-// ------------------------------------------------------
 
 enum ApprovalSourceType {
   SUPPLIER_BILL
@@ -2502,68 +2305,21 @@ enum ApprovalActionType {
   INVALIDATED
 }
 
-model ApprovalRequest {
-  id         String @id @default(cuid())
-  businessId String
-  tenantId   String
-
-  sourceType ApprovalSourceType
-  sourceId   String
-
-  status ApprovalStatus @default(PENDING)
-
-  // Checksum of the source entity at time of request, to detect tampering
-  entityHash String
-
-  // JSON snapshot of the core financial payload for auditability without querying historical state
-  snapshotJson String // Storing as JSON string
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  actions ApprovalAction[]
-
-  @@index([businessId, sourceType, sourceId])
-  @@map("approval_request")
-}
-
-model ApprovalAction {
-  id                String @id @default(cuid())
-  approvalRequestId String
-
-  actionType  ApprovalActionType
-  performedBy String // User ID
-  notes       String?
-
-  createdAt DateTime @default(now())
-
-  request ApprovalRequest @relation(fields: [approvalRequestId], references: [id])
-
-  @@map("approval_action")
-}
-
-// --- RC5.9 Audit Center ---
-
 enum AuditEventType {
   CREATED
   UPDATED
   DELETED
-
   APPROVAL_REQUESTED
   APPROVED
   REJECTED
   INVALIDATED
-
   JOURNAL_POSTED
   PAYMENT_CREATED
   PAYMENT_ALLOCATED
-
   ATTACHMENT_ADDED
   ATTACHMENT_SUPERSEDED
-
   LOCKED
   UNLOCKED
-
   IRN_GENERATED
   IRN_REQUESTED
   IRN_FAILED
@@ -2574,7 +2330,6 @@ enum AuditEventType {
   EWAY_CANCELLED
   IRN_RETRY_SCHEDULED
   EWAY_RETRY_SCHEDULED
-
   BANK_STATEMENT_IMPORTED
   BANK_RECON_APPROVED
 }
@@ -2594,61 +2349,6 @@ enum ComplianceJobStatus {
   FAILED
 }
 
-model ComplianceJob {
-  id         String @id @default(cuid())
-  businessId String
-  tenantId   String
-
-  type   ComplianceJobType
-  status ComplianceJobStatus @default(PENDING)
-
-  attempts  Int     @default(0)
-  lastError String?
-
-  payload Json // Invoice/EWay payload details
-
-  correlationId String
-  nextAttemptAt DateTime?
-
-  createdAt   DateTime  @default(now())
-  processedAt DateTime?
-
-  @@index([status, nextAttemptAt])
-  @@index([businessId])
-  @@map("compliance_jobs")
-}
-
-model AuditEvent {
-  id         String @id @default(cuid())
-  businessId String
-  tenantId   String
-
-  entityType String // e.g., SUPPLIER_BILL, JOURNAL_ENTRY
-  entityId   String
-
-  eventType AuditEventType
-
-  correlationId String // Required origin workflow ID
-
-  performedBy String? // User ID who performed the action (System for automated)
-
-  beforeSnapshot Json? // Compact diffs, not full entities
-  afterSnapshot  Json? // Compact diffs, not full entities
-
-  metadata Json? // E.g. IP, Device, Reason
-
-  createdAt DateTime @default(now())
-
-  @@index([businessId, entityType, entityId])
-  @@index([correlationId])
-  @@index([businessId, createdAt])
-  @@map("audit_events")
-}
-
-// ------------------------------------------------------
-// RC6.4 TREASURY & CASH FORECASTING
-// ------------------------------------------------------
-
 enum CashFlowCategory {
   OPERATING
   INVESTING
@@ -2667,26 +2367,3 @@ enum RecurringCommitmentType {
   FIXED
   VARIABLE
 }
-
-model RecurringCommitment {
-  id          String                  @id @default(cuid())
-  businessId  String
-  name        String
-  amount      Decimal
-  type        RecurringCommitmentType
-  frequency   CommitmentFrequency
-  nextDueDate DateTime
-  category    CashFlowCategory
-  active      Boolean                 @default(true)
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  business Business @relation(fields: [businessId], references: [id])
-
-  @@index([businessId])
-  @@map("recurring_commitments")
-}
-
-// ------------------------------------------------------

@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useInventoryBatch } from '@/features/inventory/queries/getBatch';

@@ -28,4 +28,8 @@ export const db = prismaClient.$extends({
 }) as unknown as PrismaClient; // Cast back to bypass type complexities for extensions across the app
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prismaClient;
-export const withActiveRecords = (query: any = {}) => ({ ...query, where: { ...(query.where || {}), status: { not: 'DELETED' } } });
+
+// Soft-delete filter. Models in this schema mark deletion with a `deletedAt` timestamp — NOT a
+// "DELETED" status enum (no model's status enum has that value). Filtering on a non-existent enum
+// value throws PrismaClientValidationError, so this must key off `deletedAt`.
+export const withActiveRecords = (query: any = {}) => ({ ...query, where: { ...(query.where || {}), deletedAt: null } });
