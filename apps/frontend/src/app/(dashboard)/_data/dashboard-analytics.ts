@@ -54,10 +54,23 @@ export async function getActivityAndDocs(tenantId: string): Promise<{ activity: 
     db.salesOrder.findMany({ where: { businessId: { in: ids } }, include: { customer: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 3 }),
   ]);
 
-  const actorIds = [...new Set(audit.map((a) => a.actorId))];
-  const actors = await db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } });
-  const actorName = new Map(actors.map((a) => [a.id, a.name]));
+  const actorIds = [
+    ...new Set(
+      audit.map((a: { actorId: string }) => a.actorId)
+    ),
+  ];
 
+  const actors = await db.user.findMany({
+    where: { id: { in: actorIds } },
+    select: { id: true, name: true },
+  });
+
+  const actorName = new Map<string, string | null>(
+    actors.map((a: { id: string; name: string | null }) => [
+      a.id,
+      a.name,
+    ])
+  );
   const activity: ActivityItem[] = audit.map((a) => {
     const meta = (a.metadata ?? {}) as Record<string, unknown>;
     const detail = (meta.code as string) ?? (meta.name as string) ?? (meta.count ? `${meta.count} records` : "");
