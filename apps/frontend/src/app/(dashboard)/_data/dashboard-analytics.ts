@@ -35,9 +35,17 @@ export interface RecentDoc {
 
 /** Recent activity (audit log) + recent documents (invoices, POs, sales orders) across the tenant. */
 export async function getActivityAndDocs(tenantId: string): Promise<{ activity: ActivityItem[]; docs: RecentDoc[] }> {
-  const businesses = await db.business.findMany({ where: { tenantId }, select: { id: true, name: true } });
-  const ids = businesses.map((b) => b.id);
-  const bizName = new Map(businesses.map((b) => [b.id, b.name]));
+  const businesses: { id: string; name: string }[] =
+    await db.business.findMany({
+      where: { tenantId },
+      select: { id: true, name: true },
+    });
+
+  const ids = businesses.map((b: { id: string; name: string }) => b.id);
+
+  const bizName = new Map<string, string>(
+    businesses.map((b: { id: string; name: string }) => [b.id, b.name])
+  );
 
   const [audit, invoices, pos, sos] = await Promise.all([
     db.auditLog.findMany({ where: { tenantId }, orderBy: { occurredAt: "desc" }, take: 8 }),
@@ -95,8 +103,13 @@ function bucketize(entries: { remaining: number; dueDate: Date | null }[]): Agin
 
 /** Group-wide analytics computed live across every business in the tenant. */
 export async function getGroupAnalytics(tenantId: string): Promise<GroupAnalytics> {
-  const businesses = await db.business.findMany({ where: { tenantId }, select: { id: true } });
-  const ids = businesses.map((b) => b.id);
+  const businesses: { id: string }[] =
+    await db.business.findMany({
+      where: { tenantId },
+      select: { id: true },
+    });
+
+  const ids = businesses.map((b: { id: string }) => b.id);
   if (ids.length === 0) return { arAging: [], apAging: [], topCustomers: [], topProducts: [] };
 
   const [receivables, payables, projections] = await Promise.all([
