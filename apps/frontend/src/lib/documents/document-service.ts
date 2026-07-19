@@ -1,9 +1,9 @@
 
-import { PrismaClient, DocumentSourceType, DocumentStatus } from "@prisma/client";
+import { DocumentSourceType, DocumentStatus } from "@prisma/client";
+import { db } from "@/lib/db";
 import { StorageProvider, LocalStorageProvider } from "./storage-provider";
 import * as crypto from "crypto";
 
-const db = new PrismaClient();
 
 const CATEGORY_LIMITS: Record<string, number> = {
   "image/png": 10 * 1024 * 1024,

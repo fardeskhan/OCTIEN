@@ -1,7 +1,7 @@
 
-import { PrismaClient, Prisma, BudgetStatus, BudgetType } from "@prisma/client";
+import { Prisma, BudgetStatus, BudgetType } from "@prisma/client";
+import { db } from "@/lib/db";
 
-const db = new PrismaClient();
 
 export class BudgetService {
   static async createBudget(params: {

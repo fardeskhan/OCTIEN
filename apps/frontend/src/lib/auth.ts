@@ -7,6 +7,14 @@ export const auth = betterAuth({
     provider: "postgresql",
   }),
 
+  user: {
+    additionalFields: {
+      tenantId: {
+        type: "string",
+        required: false,
+      },
+    },
+  },
   emailAndPassword: {
     enabled: true,
   },
@@ -15,20 +23,12 @@ export const auth = betterAuth({
     user: {
       create: {
         async before(user) {
-          console.log("========== AUTH HOOK ==========");
-          console.log("INPUT:", user);
-
-          const result = {
+          return {
             data: {
               ...user,
               tenantId: "tnt_demo_001",
             },
           };
-
-          console.log("OUTPUT:", result);
-          console.log("===============================");
-
-          return result;
         },
       },
     },
@@ -44,4 +44,5 @@ export const auth = betterAuth({
     // Netlify
     "https://cosmyerp.netlify.app",
   ],
+
 });

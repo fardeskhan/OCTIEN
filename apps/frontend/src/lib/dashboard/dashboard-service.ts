@@ -1,8 +1,7 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { db } from "@/lib/db";
 import { ManagementReportingService } from "../finance/management-reporting-service";
 import { CashForecastingEngine } from "../finance/cash-forecasting-engine";
-
-const db = new PrismaClient();
 
 export class DashboardService {
   /**
@@ -24,17 +23,22 @@ export class DashboardService {
     if (periodId) {
       period = await db.accountingPeriod.findUnique({ where: { id: periodId } });
     } else {
-      period = await db.accountingPeriod.findFirst({ 
-        where: { businessId, status: "OPEN" }, 
-        orderBy: { startDate: "desc" } 
+      period = await db.accountingPeriod.findFirst({
+        where: { businessId, status: "OPEN" },
+        orderBy: { startDate: "desc" }
       });
+      // Resilience: if no OPEN period, fall back to the most recent one so the dashboard still renders
+      // (businesses are created with an OPEN period; this covers legacy/edge cases).
+      if (!period) {
+        period = await db.accountingPeriod.findFirst({ where: { businessId }, orderBy: { startDate: "desc" } });
+      }
     }
     if (!period) throw new Error("No open period found");
 
 
     // 1. Financial Health Promise
     const mgmtDashboardPromise = trackTime('PnLQuery', () => ManagementReportingService.getExecutiveDashboard(businessId, period.id));
-    
+
     const now = new Date();
     const dayMs = 24 * 3600 * 1000;
 
@@ -101,7 +105,7 @@ export class DashboardService {
         where: { id: { in: customerIds } },
         select: { id: true, name: true }
       });
-      
+
       const topCustomers = exposureList.map(e => ({
         name: customers.find(c => c.id === e.customerId)?.name || "Unknown",
         amount: e.amount
@@ -179,17 +183,18 @@ export class DashboardService {
 
     // 5. Inventory Health Promise
     const inventoryHealthPromise = (async () => {
-      const inventoryValResult = await trackTime('InventoryQuery_Value', () => db.$queryRaw<{val: number}[]>`
-        SELECT SUM(onHandQuantity * averageCost) as val 
-        FROM inventory_variant_projection 
-        WHERE businessId = ${businessId}
+      const inventoryValResult = await trackTime('InventoryQuery_Value', () => db.$queryRaw<{ val: number }[]>`
+SELECT
+COALESCE(SUM("onHandQuantity" * "averageCost"),0) as val
+FROM inventory_variant_projection
+WHERE "businessId" = ${businessId}
       `);
       const inventoryValue = Number(inventoryValResult[0]?.val || 0);
 
       const lowStockCount = await trackTime('InventoryQuery_LowStock', () => db.inventoryVariantProjection.count({
         where: { businessId, onHandQuantity: { gt: 0 }, availableQuantity: { lt: 10 } }
       }));
-      
+
       const ninetyDaysAgo = new Date(now.getTime() - 90 * dayMs);
       const deadStockCount = await trackTime('InventoryQuery_DeadStock', () => db.inventoryVariantProjection.count({
         where: { businessId, onHandQuantity: { gt: 0 }, rebuiltAt: { lt: ninetyDaysAgo } }
@@ -246,7 +251,7 @@ export class DashboardService {
 
     const totalTimeMs = Date.now() - startTime;
     timings['TotalBuildTime'] = totalTimeMs;
-    
+
     console.log(`[DashboardService] RC6.5 Dashboard Generated in ${totalTimeMs}ms. Timings:`, timings);
 
     return {

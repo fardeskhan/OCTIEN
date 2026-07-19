@@ -99,11 +99,22 @@ export async function getActiveBusinessId(): Promise<string> {
   return currentBusinessId;
 }
 
+/**
+ * Super-admin roles bypass all permission/role guards. Owner is the tenant super-admin and is
+ * intentionally granted every capability (also backed by rolePermissions in the DB); SUPER_ADMIN is
+ * the platform super-admin. This is the ONLY authorization bypass — a legitimate, explicit one.
+ */
+function isSuperAdmin(role: { name: string; isSystem: boolean }): boolean {
+  // Case-insensitive: tenants may store the super-admin role as "Owner", "OWNER", or "SUPER_ADMIN".
+  const name = role.name.toLowerCase();
+  return name === "owner" || name === "super_admin";
+}
+
 export async function requirePermission(permissionString: string) {
   const { membership, permissions } = await requireBusinessContext();
-  
-  if (membership.role.isSystem && membership.role.name === "SUPER_ADMIN") {
-    return true; // Super Admin overrides
+
+  if (isSuperAdmin(membership.role)) {
+    return true; // Owner / Super Admin have all permissions
   }
 
   if (!permissions.includes(permissionString)) {
@@ -115,12 +126,12 @@ export async function requirePermission(permissionString: string) {
 
 export async function requireRole(roleName: string) {
   const { membership } = await requireBusinessContext();
-  
-  if (membership.role.isSystem && membership.role.name === "SUPER_ADMIN") {
+
+  if (isSuperAdmin(membership.role)) {
     return true;
   }
 
-  if (membership.role.name !== roleName && membership.role.name !== "Owner") {
+  if (membership.role.name !== roleName) {
     throw new Error(`Forbidden: Requires role ${roleName}`);
   }
 
@@ -129,12 +140,12 @@ export async function requireRole(roleName: string) {
 
 export async function requireAnyRole(roleNames: string[]) {
   const { membership } = await requireBusinessContext();
-  
-  if (membership.role.isSystem && membership.role.name === "SUPER_ADMIN") {
+
+  if (isSuperAdmin(membership.role)) {
     return true;
   }
 
-  if (!roleNames.includes(membership.role.name) && membership.role.name !== "Owner") {
+  if (!roleNames.includes(membership.role.name)) {
     throw new Error(`Forbidden: Requires one of roles ${roleNames.join(', ')}`);
   }
 

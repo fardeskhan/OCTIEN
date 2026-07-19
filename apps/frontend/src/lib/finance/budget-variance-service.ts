@@ -1,7 +1,7 @@
 
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { db } from "@/lib/db";
 
-const db = new PrismaClient();
 
 export interface VarianceDTO {
   periodId: string;

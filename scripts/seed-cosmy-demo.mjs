@@ -28,7 +28,24 @@ const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
 const txnDate = new Date(now.getFullYear(), now.getMonth(), 5);
 const periodName = `${periodStart.toLocaleString("en-US", { month: "short" })} ${periodStart.getFullYear()}`;
 
-const currency = (await db.currency.findFirst()) ?? (await db.currency.create({ data: { code: "INR", name: "Indian Rupee", symbol: "₹" } }));
+const business = await db.business.findFirst();
+
+const currency =
+  (await db.currency.findFirst({
+    where: {
+      businessId: business.id,
+      code: "INR",
+    },
+  })) ??
+  (await db.currency.create({
+    data: {
+      businessId: business.id,
+      code: "INR",
+      name: "Indian Rupee",
+      symbol: "₹",
+      isDefault: true,
+    },
+  }));
 
 // Deterministic realistic-name generators so demo lists feel full without looking auto-generated.
 const CITIES = ["Mumbai", "Pune", "Delhi", "Bengaluru", "Hyderabad", "Chennai", "Kolkata", "Ahmedabad", "Surat", "Jaipur", "Nagpur", "Indore", "Lucknow", "Kanpur", "Nashik", "Coimbatore", "Kochi", "Vadodara", "Ludhiana", "Patna"];
@@ -58,7 +75,11 @@ for (const p of await db.permission.findMany()) {
 }
 
 // Demo user — repoint to COSMY Group so the group dashboard aggregates the two businesses.
-const user = await db.user.findFirst({ where: { email: "owner@cosmy.ai" } });
+const user = await db.user.findFirst();
+
+if (!user) {
+  throw new Error("No users found in database");
+}
 await db.user.update({ where: { id: user.id }, data: { tenantId: tenant.id } });
 
 // Remove memberships to businesses outside COSMY Group (e.g. leftover test tenants like
@@ -160,7 +181,7 @@ async function seedBusiness(b, cfg) {
 
   // Stock ledger — InventoryRecord + StockMovementRecord history that NETS EXACTLY to onHand.
   await db.stockMovementRecord.deleteMany({ where: { businessId: b.id } });
-  await db.reservationRecord.deleteMany({ where: { businessId: b.id } }).catch(() => {});
+  await db.reservationRecord.deleteMany({ where: { businessId: b.id } }).catch(() => { });
   await db.inventoryRecord.deleteMany({ where: { businessId: b.id } });
   for (let vi = 0; vi < variants.length; vi++) {
     const v = variants[vi];

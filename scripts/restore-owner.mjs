@@ -57,6 +57,11 @@ await db.membership.upsert({
   create: { userId: user.id, businessId: business.id, roleId: ownerRole.id },
 });
 
+// Tenant-isolation hygiene: repoint EVERY membership of this user to the correct home-tenant Owner
+// role (the migration left one pointing at a foreign-tenant "OWNER" role with 0 permissions).
+const repointed = await db.membership.updateMany({ where: { userId: user.id }, data: { roleId: ownerRole.id } });
+console.log(`repointed ${repointed.count} membership(s) to the home Owner role`);
+
 // 5) Set the password (Better Auth scrypt hash) on the credential account. Idempotent.
 const passwordHash = await hashPassword(PASSWORD);
 const credential = await db.account.findFirst({ where: { userId: user.id, providerId: "credential" } });

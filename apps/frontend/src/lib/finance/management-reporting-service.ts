@@ -1,9 +1,8 @@
 
-import { PrismaClient, Prisma } from "@prisma/client";
+import { db } from "@/lib/db";
 import { FinancialReportingService } from "./financial-reporting";
 import { BudgetVarianceService } from "./budget-variance-service";
 
-const db = new PrismaClient();
 
 export class ManagementReportingService {
   /**

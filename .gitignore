@@ -2,7 +2,7 @@ node_modules/
 .next/
 dist/
 build/
-coverage/
+/coverage/
 
 .env
 .env.local

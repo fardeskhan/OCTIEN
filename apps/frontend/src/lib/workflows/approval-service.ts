@@ -1,11 +1,11 @@
 
-import { PrismaClient, ApprovalSourceType, ApprovalStatus, ApprovalActionType } from "@prisma/client";
+import { ApprovalSourceType, ApprovalStatus, ApprovalActionType } from "@prisma/client";
+import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/server-auth";
 import * as crypto from "crypto";
 import { AuditService } from "../audit/audit-service";
 import { CorrelationService } from "../audit/correlation-service";
 
-const db = new PrismaClient();
 
 export class ApprovalService {
   static generateHash(snapshot: any): string {
