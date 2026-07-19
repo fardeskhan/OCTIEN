@@ -39,7 +39,7 @@ export const auth = betterAuth({
     "https://pilot.cosmy.ai",
 
     // Vercel
-    "https://cosmyerp.vercel.app",
+    "https://cosmyerp-mu.vercel.app",
 
     // Netlify
     "https://cosmyerp.netlify.app",
