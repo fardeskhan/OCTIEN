@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
+import { PoweredByAeterex } from "@/components/branding/PoweredByAeterex";
 import { getSession, requireBusinessContext } from "@/lib/server-auth";
 import { db } from "@/lib/db";
 
@@ -71,6 +72,8 @@ export default async function DashboardLayout({
           {children}
         </main>
       </div>
+      {/* Injected once for every authenticated page; hidden on auth pages and in print. */}
+      <PoweredByAeterex />
     </div>
   );
 }

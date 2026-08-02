@@ -1,5 +1,18 @@
 import { formatINR } from "@/lib/currency";
+import { branding as appBranding } from "@/lib/branding";
 import type { BrandingConfig, InvoiceDocument } from "../types";
+
+/**
+ * Small, non-intrusive platform credit for exported / printed documents. The seller identity on
+ * the invoice remains the business entity; this only attributes the software (OCTIEN by Aeterex).
+ */
+export function SystemCredit() {
+  return (
+    <div className="mt-2 text-center text-[9px] uppercase tracking-[0.15em] text-slate-400">
+      Generated with {appBranding.productName} · {appBranding.company.poweredBy}
+    </div>
+  );
+}
 
 /** Brand logo — image if provided, else a colored monogram tile. */
 export function BrandLogo({ branding, size = 56 }: { branding: BrandingConfig; size?: number }) {

@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { logAudit } from "@/lib/audit";
 import { processOutboxBatch } from "@/lib/outbox";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -59,12 +60,17 @@ export async function createShipment(formData: FormData) {
     }
   });
 
-  revalidatePath("/dashboard/fulfillment/shipments");
+  await logAudit({ action: "create", resource: "shipment", resourceId: shipment.id, metadata: { code, soId } });
+  revalidatePath("/sales/deliveries");
   await processOutboxBatch();
-  redirect(`/dashboard/fulfillment/shipments/${shipment.id}`);
+  redirect(`/sales/deliveries/${shipment.id}`);
 }
 
-export async function updateShipmentStatus(id: string, status: "PICKING" | "PACKING" | "READY_TO_DISPATCH" | "DISPATCHED" | "DELIVERED" | "CANCELLED", linesData?: any) {
+export async function updateShipmentStatus(
+  id: string,
+  status: "PICKING" | "PACKING" | "READY_TO_DISPATCH" | "DISPATCHED" | "DELIVERED" | "CANCELLED",
+  linesData?: { id: string; pickedQty?: number; packedQty?: number; shippedQty?: number }[],
+) {
   const { currentBusinessId, session, tenantId } = await requireBusinessContext();
   await requirePermission("fulfillment.update");
 
@@ -119,10 +125,11 @@ export async function updateShipmentStatus(id: string, status: "PICKING" | "PACK
           businessId: currentBusinessId,
           tenantId: tenantId || "SYSTEM",
           occurredAt: new Date(),
-          payload: { 
-            shipmentId: id, 
+          payload: {
+            soId: shipment.soId,
+            shipmentId: id,
             warehouseId: shipment.warehouseId,
-            lines: updatedLines 
+            lines: updatedLines
           },
           status: "PENDING"
         }
@@ -146,8 +153,39 @@ export async function updateShipmentStatus(id: string, status: "PICKING" | "PACK
     }
   });
 
-  revalidatePath(`/dashboard/fulfillment/shipments/${id}`);
-  revalidatePath("/dashboard/fulfillment/shipments");
+  await logAudit({ action: status.toLowerCase(), resource: "shipment", resourceId: id, metadata: { code: shipment.code, status } });
+  revalidatePath(`/sales/deliveries/${id}`);
+  revalidatePath("/sales/deliveries");
   await processOutboxBatch();
   return { success: true };
+}
+
+/** List shipments for the active business (for the Deliveries list). */
+export async function getShipments() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("sales.read");
+  return db.shipment.findMany({
+    where: { businessId, deletedAt: null },
+    include: {
+      salesOrder: { include: { customer: { select: { name: true } } } },
+      warehouse: { select: { name: true, code: true } },
+      lines: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/** Full shipment detail (lines + SO + warehouse + delivery note) for the Deliveries detail page. */
+export async function getShipmentById(id: string) {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("sales.read");
+  return db.shipment.findFirst({
+    where: { id, businessId },
+    include: {
+      salesOrder: { include: { customer: true, lines: true } },
+      warehouse: true,
+      lines: { include: { variant: { include: { product: true } } } },
+      deliveryNote: true,
+    },
+  });
 }

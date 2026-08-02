@@ -17,7 +17,7 @@ export interface WorkspaceShellProps<T> {
   activeTab: string;
   onTabChange: (tabId: string) => void;
   commands: React.ReactNode;
-  irisContext: any; // Explicit AI context
+  irisContext: unknown; // Explicit AI context
   projectionMetadata: {
     version: number;
     lagEvents: number;
@@ -26,7 +26,7 @@ export interface WorkspaceShellProps<T> {
 }
 
 /**
- * Universal Workspace Shell for all COSMY capabilities (Sales, CRM, Manufacturing).
+ * Universal Workspace Shell for all OCTIEN capabilities (Sales, CRM, Manufacturing).
  * Guarantees standard UI patterns and eliminates navigation fatigue.
  */
 export function WorkspaceShell<T>({

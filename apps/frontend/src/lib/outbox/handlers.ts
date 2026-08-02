@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { registerHandler } from "./registry";
 import { FinancialPostingService } from "../finance/posting-engine";
+import { ensureSalesLedgerAccounts, postCustomerInvoiceJournal } from "../finance/sales-posting";
+import { weightedAverageCost } from "../finance/wac";
 import { Prisma } from "@prisma/client";
 
 registerHandler("PurchaseOrderApproved", async (event) => {
@@ -16,7 +18,14 @@ registerHandler("GoodsReceiptRequested", async (event) => {
 registerHandler("GoodsReceiptCompleted", async (event) => {
   const payload = event.payload as any;
   const { poId, acceptedLines } = payload;
-  
+
+  // Idempotency guard: if this goods receipt has already produced a supplier bill, the event has
+  // already been processed — a replay must NOT re-update PO-line received quantities, recompute WAC,
+  // or create another bill. Making the whole handler a no-op on replay keeps it retry-safe.
+  const grSourceId = payload.grId || event.aggregateId;
+  const alreadyProcessed = await db.supplierBill.findFirst({ where: { businessId: event.businessId, sourceType: "GOODS_RECEIPT", sourceId: grSourceId } });
+  if (alreadyProcessed) return;
+
   // Update PO Lines
   let totalAccepted = 0;
   for (const line of acceptedLines) {
@@ -67,18 +76,22 @@ registerHandler("GoodsReceiptCompleted", async (event) => {
               if (projs.length > 0) {
                 let totalOnHand = 0;
                 let totalValue = 0;
-                
-                // Compute total current value
+
+                // Compute total current value. NOTE: onHand ALREADY includes this receipt (the
+                // goods-receipt action increments the projection before this event drains), so the
+                // pre-receipt quantity is `totalOnHand − acceptedQty`. The previous code added the
+                // received qty a SECOND time (newTotalQty = totalOnHand + acceptedQty), which
+                // double-counted it in the denominator and drifted the average cost downward.
                 for (const p of projs) {
                   totalOnHand += p.onHandQuantity;
                   totalValue += p.onHandQuantity * p.averageCost.toNumber();
                 }
 
-                const newTotalQty = totalOnHand + line.acceptedQty;
-                const newTotalValue = totalValue + (line.acceptedQty * poLine.unitPrice);
-                const newWac = newTotalQty > 0 ? (newTotalValue / newTotalQty) : poLine.unitPrice;
+                const oldWac = totalOnHand > 0 ? totalValue / totalOnHand : poLine.unitPrice;
+                const prevQty = Math.max(0, totalOnHand - line.acceptedQty);
+                const newWac = weightedAverageCost(prevQty, oldWac, line.acceptedQty, poLine.unitPrice);
 
-                // Update all warehouse projections for this variant with the new average cost
+                // Update all warehouse projections for this variant with the new average cost.
                 await db.inventoryVariantProjection.updateMany({
                   where: { businessId: event.businessId, variantId: line.variantId },
                   data: { averageCost: new Prisma.Decimal(newWac) }
@@ -176,8 +189,25 @@ registerHandler("InventoryReservationRequested", async (event) => {
     const warehouse = await db.warehouse.findFirst({ where: { businessId: event.businessId, isDefault: true } });
     if (!warehouse) continue;
 
-    const inventoryId = `${event.businessId}-${line.variantId}-${warehouse.id}`;
-    
+    // ReservationRecord.inventoryId is a FK to InventoryRecord. Look up the REAL record by its
+    // unique key instead of constructing a synthetic `${businessId}-${variantId}-${warehouseId}`
+    // id — that only matches records created via ensureInventoryRecord, NOT seeded ones
+    // (id `INV-<slug>-<n>`), which silently failed the FK and left stock un-reserved.
+    const invRecord = await db.inventoryRecord.findUnique({
+      where: { businessId_variantId_warehouseId: { businessId: event.businessId, variantId: line.variantId, warehouseId: warehouse.id } }
+    });
+    if (!invRecord) continue;
+
+    // Idempotency guard: a replayed reservation event must not create a second reservation for the
+    // same order + inventory record (which would double the reserved quantity and starve available
+    // stock). The key is one live reservation per (order, inventory) — ACTIVE (still holding stock)
+    // or FULFILLED (already shipped). A CANCELLED/EXPIRED reservation does NOT block, so a legitimate
+    // re-reservation after cancellation is still allowed.
+    const existingRes = await db.reservationRecord.findFirst({
+      where: { businessId: event.businessId, referenceId: soId, inventoryId: invRecord.id, status: { in: ["ACTIVE", "FULFILLED"] } }
+    });
+    if (existingRes) continue;
+
     // Check available
     const proj = await db.inventoryVariantProjection.findUnique({
       where: { businessId_variantId_warehouseId: { businessId: event.businessId, variantId: line.variantId, warehouseId: warehouse.id } }
@@ -187,10 +217,10 @@ registerHandler("InventoryReservationRequested", async (event) => {
       // Create Reservation
       await db.reservationRecord.create({
         data: {
-          id: `RES-${Date.now()}-${Math.random()}`,
+          id: `RES-${Date.now()}-${Math.floor(Math.random() * 1e9)}`,
           businessId: event.businessId,
           tenantId: event.tenantId,
-          inventoryId,
+          inventoryId: invRecord.id,
           referenceId: soId,
           quantity: line.quantity,
           status: "ACTIVE",
@@ -269,7 +299,7 @@ registerHandler("ShipmentDispatched", async (event) => {
         
         if (totalAmount > 0) {
           const suffix = Date.now().toString().slice(-6);
-          await db.customerInvoice.create({
+          const newInvoice = await db.customerInvoice.create({
             data: {
               businessId: event.businessId,
               code: "INV-" + suffix,
@@ -284,7 +314,18 @@ registerHandler("ShipmentDispatched", async (event) => {
               }
             }
           });
-          
+
+          // Post the invoice to the ledger (DR AR / CR Revenue / CR Output GST) so a
+          // shipment-generated invoice hits Finance exactly like a manual one.
+          await ensureSalesLedgerAccounts(event.businessId);
+          await postCustomerInvoiceJournal({
+            businessId: event.businessId,
+            tenantId: event.tenantId,
+            invoiceId: newInvoice.id,
+            code: newInvoice.code,
+            total: totalAmount,
+          });
+
           await db.outboxEventRecord.create({
             data: {
               eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -332,16 +373,31 @@ registerHandler("ShipmentDispatched", async (event) => {
 registerHandler("InventoryStockOutRequested", async (event) => {
   const payload = event.payload as any;
   const { shipmentId, warehouseId, lines } = payload;
-  
+
   const correlationId = `SHP-${shipmentId}`;
 
+  // Idempotency guard (Priority #1 — stock-OUT replay protection): once stock has been moved out for
+  // this shipment, a replayed event must NOT create a second movement or deduct the projection
+  // again. Movement ids were previously Date.now()-based (never colliding), so replay silently
+  // double-deducted. Keying off the deterministic per-shipment correlationId and no-op'ing the whole
+  // handler on replay makes stock-out retry-safe.
+  const alreadyOut = await db.stockMovementRecord.findFirst({ where: { businessId: event.businessId, correlationId } });
+  if (alreadyOut) return;
+
   for (const line of lines) {
-    const inventoryId = `${event.businessId}-${line.variantId}-${warehouseId}`;
-    
+    // StockMovementRecord.inventoryId is a FK to InventoryRecord — resolve the REAL record by its
+    // unique key (a synthetic `${businessId}-${variantId}-${warehouseId}` id FK-fails for seeded
+    // inventory, the same bug fixed for reservations).
+    const invRecord = await db.inventoryRecord.findUnique({
+      where: { businessId_variantId_warehouseId: { businessId: event.businessId, variantId: line.variantId, warehouseId } }
+    });
+    if (!invRecord) continue;
+    const inventoryId = invRecord.id;
+
     // Deduct stock
     await db.stockMovementRecord.create({
       data: {
-        id: `MOV-OUT-${Date.now()}-${Math.random()}`,
+        id: `MOV-OUT-${Date.now()}-${Math.floor(Math.random() * 1e9)}`,
         businessId: event.businessId,
         tenantId: event.tenantId,
         inventoryId,
@@ -456,7 +512,11 @@ registerHandler("SupplierBillApproved", async (event) => {
 
 registerHandler("SupplierPaymentRegistered", async (event) => {
   const payload = event.payload as any;
-  
+
+  // Idempotency guard: don't post the payment journal twice on event replay.
+  const existing = await db.journalEntry.findFirst({ where: { businessId: event.businessId, sourceType: "SUPPLIER_PAYMENT", sourceId: payload.paymentId } });
+  if (existing) return;
+
   await FinancialPostingService.postEntry({
       businessId: event.businessId,
               tenantId: event.tenantId,
@@ -507,7 +567,11 @@ registerHandler("CustomerInvoiceCreated", async (event) => {
 
 registerHandler("CustomerPaymentRecorded", async (event) => {
   const payload = event.payload as any;
-  
+
+  // Idempotency guard: don't post the receipt journal twice on event replay.
+  const existing = await db.journalEntry.findFirst({ where: { businessId: event.businessId, sourceType: "CUSTOMER_PAYMENT", sourceId: payload.paymentId } });
+  if (existing) return;
+
   await FinancialPostingService.postEntry({
       businessId: event.businessId,
               tenantId: event.tenantId,

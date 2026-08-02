@@ -13,7 +13,7 @@ export default function LumasPage() {
           </div>
           <div className="text-lg font-medium">Coming soon</div>
           <p className="text-sm text-muted-foreground max-w-md">
-            Casa de Lumas is a future business unit on the COSMY multi-business roadmap. It will use the same
+            Casa de Lumas is a future business unit on the OCTIEN multi-business roadmap. It will use the same
             shared ERP modules (inventory, procurement, sales, finance) once onboarded.
           </p>
         </CardContent>

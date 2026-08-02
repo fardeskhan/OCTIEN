@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getCustomer } from "@/app/actions/customer";
-import { formatCurrency, formatNumber } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { notFound } from "next/navigation";
 
 export default async function Customer360Page({ params }: { params: Promise<{ id: string }> }) {
@@ -34,9 +34,23 @@ export default async function Customer360Page({ params }: { params: Promise<{ id
             </span>
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-sm text-muted-foreground">Lifetime Value (LTV)</div>
-          <div className="text-2xl font-bold text-green-600">{formatCurrency(ltv)}</div>
+        <div className="flex items-center gap-4">
+          <Link
+            href={`/sales/customers/${id}/360`}
+            className="inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            360° View
+          </Link>
+          <Link
+            href={`/sales/customers/${id}/statement`}
+            className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm font-medium hover:bg-muted"
+          >
+            View Statement
+          </Link>
+          <div className="text-right">
+            <div className="text-sm text-muted-foreground">Lifetime Value (LTV)</div>
+            <div className="text-2xl font-bold text-green-600">{formatCurrency(ltv)}</div>
+          </div>
         </div>
       </div>
 

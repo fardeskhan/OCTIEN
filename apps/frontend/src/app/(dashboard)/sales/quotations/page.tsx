@@ -1,16 +1,27 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { Plus, FileText } from "lucide-react";
 import { getQuotations } from "@/app/actions/quotation";
-import { formatCurrency, formatNumber } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
+import { EnterpriseStatusBadge, EnterpriseEmptyState } from "@/components/enterprise";
+import { QuotationRowActions } from "./quotation-row-actions";
 
 async function QuotationsList() {
   const data = await getQuotations();
 
   if (data.length === 0) {
     return (
-      <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed text-center">
-        <p className="text-sm text-muted-foreground">No quotations found.</p>
-      </div>
+      <EnterpriseEmptyState
+        icon={<FileText className="h-5 w-5" />}
+        title="No quotations yet"
+        description="Draft your first quotation to start the sales pipeline."
+        action={
+          <Link href="/sales/quotations/new" className={buttonVariants({ size: "sm" })}>
+            <Plus className="h-4 w-4" /> New Quotation
+          </Link>
+        }
+      />
     );
   }
 
@@ -24,6 +35,7 @@ async function QuotationsList() {
             <th className="px-6 py-4 font-medium">Created</th>
             <th className="px-6 py-4 font-medium text-right">Status</th>
             <th className="px-6 py-4 font-medium text-right">Total Amount</th>
+            <th className="px-6 py-4 font-medium text-right sr-only">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -34,12 +46,15 @@ async function QuotationsList() {
                 <Link href={`/sales/customers/${row.customerId}`} className="font-medium text-blue-600 hover:underline">{row.customer.name}</Link>
               </td>
               <td className="px-6 py-4">{row.createdAt.toLocaleDateString()}</td>
-              <td className="px-6 py-4 text-right">
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${row.status === 'ACCEPTED' ? 'bg-green-100 text-green-800' : row.status === 'DRAFT' ? 'bg-secondary text-secondary-foreground' : row.status === 'EXPIRED' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
-                  {row.status}
-                </span>
+              <td className="px-6 py-4">
+                <div className="flex justify-end">
+                  <EnterpriseStatusBadge status={row.status} />
+                </div>
               </td>
               <td className="px-6 py-4 text-right font-medium text-foreground">{formatCurrency(row.totalAmount)}</td>
+              <td className="px-2 py-4 text-right">
+                <QuotationRowActions id={row.id} code={row.code} status={row.status} />
+              </td>
             </tr>
           ))}
         </tbody>
@@ -53,6 +68,9 @@ export default function SalesQuotationsPage() {
     <div className="flex-1 space-y-4 p-8 pt-6">
       <div className="flex items-center justify-between space-y-2">
         <h2 className="text-3xl font-bold tracking-tight">Sales / Quotations</h2>
+        <Link href="/sales/quotations/new" className={buttonVariants({ size: "sm" })}>
+          <Plus className="h-4 w-4" /> New Quotation
+        </Link>
       </div>
       <div className="flex gap-4 border-b pb-4 mb-4 text-sm font-medium">
         <Link href="/sales/dashboard" className="text-muted-foreground hover:text-foreground pb-2">Overview</Link>

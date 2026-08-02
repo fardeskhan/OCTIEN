@@ -245,6 +245,17 @@ export async function processGoodsReceiptRequest(grId: string, acceptedLines: { 
     });
 
     if (totalAccepted > 0) {
+      // Enrich the accepted lines with poLineId + variantId from the GR lines — the
+      // GoodsReceiptCompleted handler needs them to update PO lines, compute WAC and create the
+      // supplier bill. Emitting the raw input (id/acceptedQty/rejectedQty only) made all of that
+      // silently skip (the same class of payload-mismatch bug fixed in Sales).
+      const enrichedLines = acceptedLines
+        .map((il) => {
+          const grLine = gr.lines.find((l: { id: string; poLineId: string; variantId: string }) => l.id === il.id);
+          return { id: il.id, acceptedQty: il.acceptedQty, rejectedQty: il.rejectedQty, poLineId: grLine?.poLineId, variantId: grLine?.variantId };
+        })
+        .filter((l) => l.acceptedQty > 0 && l.poLineId && l.variantId);
+
       await tx.outboxEventRecord.create({
         data: {
           eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -254,7 +265,7 @@ export async function processGoodsReceiptRequest(grId: string, acceptedLines: { 
           businessId: currentBusinessId,
           tenantId: tenantId,
           occurredAt: new Date(),
-          payload: { poId: gr.poId, acceptedLines },
+          payload: { poId: gr.poId, grId: gr.id, acceptedLines: enrichedLines },
           status: "PENDING"
         }
       });
@@ -264,63 +275,5 @@ export async function processGoodsReceiptRequest(grId: string, acceptedLines: { 
   revalidatePath("/operations/procurement/receipts");
   revalidatePath("/inventory");
   await processOutboxBatch();
-  return { success: true };
-}
-
-export async function processGoodsReceipt(grId: string, acceptedLines: { id: string, acceptedQty: number, rejectedQty: number }[]) {
-  const { currentBusinessId, tenantId, session } = await requireBusinessContext();
-  await requirePermission("inventory.update");
-
-  await db.$transaction(async (tx) => {
-    const gr = await tx.goodsReceiptRequest.findUnique({
-      where: { id: grId, businessId: currentBusinessId },
-      include: { lines: true, purchaseOrder: true }
-    });
-
-    if (!gr || gr.status !== "REQUESTED") throw new Error("Invalid Goods Receipt Request");
-
-    const timestamp = Date.now();
-    const correlationId = `GR-${gr.id}-${timestamp}`;
-
-    let totalAccepted = 0;
-
-    for (const inputLine of acceptedLines) {
-      const line = gr.lines.find(l => l.id === inputLine.id);
-      if (!line) continue;
-
-      const varianceQty = line.requestedQty - (inputLine.acceptedQty + inputLine.rejectedQty);
-
-      await tx.goodsReceiptLine.update({
-        where: { id: line.id },
-        data: {
-          acceptedQty: inputLine.acceptedQty,
-          rejectedQty: inputLine.rejectedQty,
-          varianceQty
-        }
-      });
-
-      if (inputLine.acceptedQty > 0) {
-        // Physical stock increase in Inventory!
-        const inventory = await ensureInventoryRecord(tx, currentBusinessId, tenantId, line.variantId, gr.warehouseId);
-
-        await tx.stockMovementRecord.create({
-          data: {
-            id: `MOV-IN-${line.id}-${timestamp}`,
-            businessId: currentBusinessId,
-            tenantId,
-            inventoryId: inventory.id,
-            variantId: line.variantId,
-            warehouseId: gr.warehouseId,
-            type: "RECEIVED",
-            quantityValue: inputLine.acceptedQty,
-            quantityUnit: "pcs", // Needs real unit mapping in prod
-            actorId: session.user.id,
-            correlationId,
-          }
-        });
-      }
-    }
-  });
-
   return { success: true };
 }

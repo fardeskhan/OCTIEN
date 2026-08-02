@@ -150,3 +150,12 @@
     @apply font-sans;
   }
 }
+
+/* Branding: keep the "Powered by Aeterex" watermark (and any .no-print element) off printed
+   pages, PDFs and print previews. The watermark also carries the Tailwind `print:hidden`
+   variant; this rule is a belt-and-braces fallback for anything tagged .no-print. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

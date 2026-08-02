@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { BrandLogo } from "@/components/branding/BrandLogo";
 import { 
   LayoutDashboard, 
   Package, 
@@ -51,10 +52,9 @@ export function Sidebar({ userPermissions }: { userPermissions: string[] }) {
   });
 
   return (
-    <div className="flex h-full w-64 flex-col border-r border-border bg-card">
+    <div className="flex h-full w-64 flex-col border-r border-border bg-card print:hidden">
       <div className="flex h-14 items-center gap-2 border-b border-border px-4">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold">C</div>
-        <h1 className="font-semibold text-[15px] tracking-tight">COSMY ERP</h1>
+        <BrandLogo variant="full" size={26} />
       </div>
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
         {filteredNavigation.map((item) => {

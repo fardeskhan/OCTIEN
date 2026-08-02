@@ -1,6 +1,6 @@
 import { formatINR } from "@/lib/currency";
 import type { InvoiceRenderProps } from "../types";
-import { BrandLogo, TaxSummaryBlock, TermsBlock, SignatureBlock } from "./_shared";
+import { BrandLogo, TaxSummaryBlock, TermsBlock, SignatureBlock, SystemCredit } from "./_shared";
 
 /**
  * Minimal template — understated, whitespace-heavy. Doubles as the "Custom" starting point:
@@ -71,6 +71,7 @@ export function MinimalTemplate({ doc, branding }: InvoiceRenderProps) {
       </div>
 
       <div className="mt-8 text-center text-xs text-slate-400">{branding.footerNote}</div>
+      <SystemCredit />
     </div>
   );
 }

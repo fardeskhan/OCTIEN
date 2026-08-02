@@ -1,88 +1,136 @@
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
-import { Suspense } from "react";
-import { db } from "@/lib/db";
-import { getActiveBusinessId } from "@/lib/server-auth";
-import { formatCurrency, formatNumber } from "@/lib/utils";
+import { AlertTriangle } from "lucide-react";
+import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
+import { getSalesDashboard } from "@/lib/sales/sales-dashboard";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StandardBarChart, StandardLineChart } from "@/components/ui/chart-wrappers";
+import { formatINR } from "@/lib/currency";
+import { formatNumber } from "@/lib/utils";
+import { EnterprisePage, EnterprisePageHeader, EnterpriseKPIRow, EnterpriseStatCard } from "@/components/enterprise";
 
-async function getBusinessId() {
-  return getActiveBusinessId();
-}
-
-async function SalesDashboardData() {
-  const businessId = await getBusinessId();
-  
-  // Real-time queries for V1
-  const openOrdersCount = await db.salesOrder.count({
-    where: { businessId, status: { in: ["APPROVED", "CONFIRMED", "PARTIALLY_FULFILLED"] } }
-  });
-
-  const totalSalesAgg = await db.salesOrder.aggregate({
-    where: { businessId, status: { in: ["FULFILLED"] } },
-    _sum: { totalAmount: true }
-  });
-
-  const pendingReturns = await db.salesReturn.count({
-    where: { businessId, status: "REQUESTED" }
-  });
-
-  const activeCustomers = await db.customer.count({
-    where: { businessId, status: "ACTIVE" }
-  });
-
+function ListCard({ title, rows }: { title: string; rows: { label: string; value: string }[] }) {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm">
-        <div className="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
-          <h3 className="tracking-tight text-sm font-medium">Total Sales (Fulfilled)</h3>
-        </div>
-        <div className="p-6 pt-0">
-          <div className="text-2xl font-bold">{formatCurrency(totalSalesAgg._sum.totalAmount || 0)}</div>
-        </div>
-      </div>
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm">
-        <div className="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
-          <h3 className="tracking-tight text-sm font-medium">Open Orders</h3>
-        </div>
-        <div className="p-6 pt-0">
-          <div className="text-2xl font-bold">{formatNumber(openOrdersCount)}</div>
-        </div>
-      </div>
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm">
-        <div className="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
-          <h3 className="tracking-tight text-sm font-medium">Active Customers</h3>
-        </div>
-        <div className="p-6 pt-0">
-          <div className="text-2xl font-bold">{formatNumber(activeCustomers)}</div>
-        </div>
-      </div>
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm">
-        <div className="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
-          <h3 className="tracking-tight text-sm font-medium">Pending Returns</h3>
-        </div>
-        <div className="p-6 pt-0">
-          <div className="text-2xl font-bold">{formatNumber(pendingReturns)}</div>
-        </div>
-      </div>
-    </div>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-medium">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No data.</p>
+        ) : (
+          rows.map((r, i) => (
+            <div key={i} className="flex items-center justify-between text-sm">
+              <span className="truncate pr-2 font-medium">{r.label}</span>
+              <span className="tabular-nums text-muted-foreground">{r.value}</span>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
-export default function SalesDashboardPage() {
+const NAV = [
+  ["Overview", "/sales/dashboard"],
+  ["Customers", "/sales/customers"],
+  ["Quotations", "/sales/quotations"],
+  ["Orders", "/sales/orders"],
+  ["Deliveries", "/sales/deliveries"],
+  ["Aging", "/sales/aging"],
+] as const;
+
+export default async function SalesDashboardPage() {
+  const { currentBusinessId: businessId } = await requireBusinessContext();
+  await requirePermission("sales.read");
+
+  const d = await getSalesDashboard(businessId);
+  const { kpis, operations, aging } = d;
+
+  const distribution = [
+    { bucket: "Current", amount: Math.round(aging.totals.current) },
+    { bucket: "1–30", amount: Math.round(aging.totals.d1_30) },
+    { bucket: "31–60", amount: Math.round(aging.totals.d31_60) },
+    { bucket: "61–90", amount: Math.round(aging.totals.d61_90) },
+    { bucket: "91–120", amount: Math.round(aging.totals.d91_120) },
+    { bucket: "120+", amount: Math.round(aging.totals.d120plus) },
+  ];
+
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6">
-      <div className="flex items-center justify-between space-y-2">
-        <h2 className="text-3xl font-bold tracking-tight">Sales Dashboard</h2>
+    <EnterprisePage>
+      <EnterprisePageHeader title="Sales Dashboard" description="Live sales performance, receivables and operations." />
+
+      <div className="flex flex-wrap gap-4 border-b border-border pb-3 text-sm font-medium">
+        {NAV.map(([label, href]) => (
+          <Link key={href} href={href} className={href === "/sales/dashboard" ? "text-primary" : "text-muted-foreground hover:text-foreground"}>
+            {label}
+          </Link>
+        ))}
       </div>
-      <div className="flex gap-4 border-b pb-4 mb-4 text-sm font-medium">
-        <Link href="/sales/dashboard" className="text-primary border-b-2 border-primary pb-2 -mb-[18px]">Overview</Link>
-        <Link href="/sales/customers" className="text-muted-foreground hover:text-foreground pb-2">Customers</Link>
-        <Link href="/sales/quotations" className="text-muted-foreground hover:text-foreground pb-2">Quotations</Link>
-        <Link href="/sales/orders" className="text-muted-foreground hover:text-foreground pb-2">Orders</Link>
-        <Link href="/sales/returns" className="text-muted-foreground hover:text-foreground pb-2">Returns</Link>
+
+      {/* Alerts */}
+      {d.alerts.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {d.alerts.map((a, i) => (
+            <span
+              key={i}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${
+                a.tone === "danger"
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : a.tone === "warning"
+                    ? "border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                    : "border-border bg-muted text-muted-foreground"
+              }`}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" /> {a.label}: {a.value}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Row 1 — Executive KPIs */}
+      <EnterpriseKPIRow className="lg:grid-cols-5">
+        <EnterpriseStatCard title="Revenue (Invoiced)" value={formatINR(kpis.revenue)} />
+        <EnterpriseStatCard title="Orders" value={formatNumber(kpis.orders)} />
+        <EnterpriseStatCard title="Shipments" value={formatNumber(kpis.shipments)} />
+        <EnterpriseStatCard title="Invoices" value={formatNumber(kpis.invoices)} />
+        <EnterpriseStatCard title="Payments" value={formatINR(kpis.payments)} />
+        <EnterpriseStatCard title="Outstanding AR" value={formatINR(kpis.outstandingAR)} />
+        <EnterpriseStatCard title="Overdue AR" value={formatINR(kpis.overdueAR)} variant={kpis.overdueAR > 0 ? "destructive" : "default"} />
+        <EnterpriseStatCard title="Collection %" value={kpis.collectionRate != null ? `${Math.round(kpis.collectionRate * 100)}%` : "—"} />
+        <EnterpriseStatCard title="Avg Order Value" value={formatINR(kpis.avgOrderValue)} />
+      </EnterpriseKPIRow>
+
+      {/* Row 2 — Trends */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <StandardBarChart title="Revenue trend" data={d.trends} xAxisKey="month" series={[{ key: "revenue", color: "var(--primary)" }]} height={240} />
+        <StandardLineChart title="Collections trend" data={d.trends} xAxisKey="month" series={[{ key: "collected", color: "var(--success)" }]} height={240} />
       </div>
-      <Suspense fallback={<div className="h-40 w-full animate-pulse bg-muted rounded-lg border"></div>}>
-        <SalesDashboardData />
-      </Suspense>
-    </div>
+
+      {/* Row 3 — Receivables */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <StandardBarChart className="lg:col-span-2" title="Aging distribution" data={distribution} xAxisKey="bucket" series={[{ key: "amount", color: "var(--primary)" }]} height={220} />
+        <ListCard title="Top overdue customers" rows={aging.topOverdue.map((c) => ({ label: c.name, value: formatINR(c.overdue) }))} />
+      </div>
+
+      {/* Row 4 — Operations */}
+      <EnterpriseKPIRow className="lg:grid-cols-6">
+        <EnterpriseStatCard title="Pending Quotations" value={formatNumber(operations.pendingQuotations)} />
+        <EnterpriseStatCard title="Pending Orders" value={formatNumber(operations.pendingOrders)} />
+        <EnterpriseStatCard title="Picking" value={formatNumber(operations.picking)} />
+        <EnterpriseStatCard title="Packing" value={formatNumber(operations.packing)} />
+        <EnterpriseStatCard title="Dispatched Today" value={formatNumber(operations.dispatchedToday)} />
+        <EnterpriseStatCard title="Delivered Today" value={formatNumber(operations.deliveredToday)} />
+      </EnterpriseKPIRow>
+
+      {/* Row 5 — Top lists */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <ListCard title="Top customers" rows={d.topCustomers.map((c) => ({ label: c.name, value: formatINR(c.amount) }))} />
+        <ListCard title="Top products" rows={d.topProducts.map((p) => ({ label: p.name, value: formatINR(p.amount) }))} />
+        <ListCard title="Largest outstanding" rows={d.largestOutstanding.map((c) => ({ label: c.name, value: formatINR(c.amount) }))} />
+        <ListCard title="Recent sales" rows={d.recentSales.map((s) => ({ label: `${s.code} · ${s.customer}`, value: formatINR(s.amount) }))} />
+      </div>
+    </EnterprisePage>
   );
 }

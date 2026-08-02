@@ -1,6 +1,6 @@
 import { formatINR } from "@/lib/currency";
 import type { InvoiceRenderProps } from "../types";
-import { BrandLogo, TaxSummaryBlock, TermsBlock, SignatureBlock } from "./_shared";
+import { BrandLogo, TaxSummaryBlock, TermsBlock, SignatureBlock, SystemCredit } from "./_shared";
 
 /** Corporate template — bold colored header band, striped rows, prominent balance-due box. */
 export function CorporateTemplate({ doc, branding }: InvoiceRenderProps) {
@@ -83,6 +83,7 @@ export function CorporateTemplate({ doc, branding }: InvoiceRenderProps) {
         </div>
 
         <div className="mt-8 border-t border-slate-200 pt-4 text-center text-xs text-slate-500">{branding.footerNote}</div>
+        <SystemCredit />
       </div>
     </div>
   );

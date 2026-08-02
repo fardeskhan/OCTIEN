@@ -1,5 +1,5 @@
 /**
- * Shared currency formatting for COSMY ERP.
+ * Shared currency formatting for OCTIEN.
  * Default ERP currency is INR (₹). All dashboard and finance views should format
  * money through these helpers rather than hardcoding a symbol.
  */
