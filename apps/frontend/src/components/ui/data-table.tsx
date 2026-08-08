@@ -144,7 +144,7 @@ export function DataTable<TData, TValue>({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto rounded-md border border-border">
+      <div className="scrollbar-enterprise flex-1 overflow-auto rounded-md border border-border">
         <Table>
           <TableHeader className="sticky top-0 bg-muted/40 z-10">
             {table.getHeaderGroups().map((headerGroup) => (

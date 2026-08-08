@@ -39,8 +39,11 @@ export const branding = {
    *  - icon:  square app icon used for favicon / PWA / apple-touch
    */
   logo: {
-    mark: "/branding/octien-mark.svg",
-    full: "/branding/octien-logo.svg",
+    // Official OCTIEN logo — shown everywhere the in-app brand appears (via <BrandLogo>).
+    mark: "/branding/octien-official.svg",
+    full: "/branding/octien-official.svg",
+    // Favicon / PWA icon is kept as the lightweight square icon (a 2 MB favicon would be wasteful and
+    // is downscaled to ~16px by browsers anyway).
     icon: "/branding/octien-icon.svg",
     alt: "OCTIEN",
   },
@@ -51,8 +54,11 @@ export const branding = {
   /** Favicon reference (also see app/manifest.ts and the root layout `icons` metadata). */
   favicon: "/branding/octien-icon.svg",
 
-  /** Brand theme color for the browser chrome / PWA. */
-  themeColor: "#4f46e5",
+  /** Brand theme color for the browser chrome / PWA (OCTIEN blue). */
+  themeColor: "#2563eb",
+
+  /** Full official logo (raster-embedded) — for large brand moments (login splash) only. */
+  officialLogo: "/branding/octien-official.svg",
 
   version: VERSION,
   /** Human-readable version label, e.g. shown in Settings / About. */

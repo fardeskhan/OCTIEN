@@ -3,6 +3,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================================================
+   OCTIEN DESIGN SYSTEM — token layer (Tailwind v4 @theme)
+   Single source of truth: docs/design/COLOR_SYSTEM.md. Identity: Blue / White / Black.
+   Every color is OKLCH for perceptual consistency and WCAG-AA-checked contrast.
+   Components must consume these tokens (bg-primary, text-muted-foreground, border-border, …)
+   — never hardcode hex. Changing a value here re-skins the entire application.
+   ============================================================================================ */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -10,46 +18,79 @@
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
 
+  /* Brand primary + interaction states */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+
+  /* Semantic status */
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-info-subtle: var(--info-subtle);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
-
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
+  --color-warning-subtle: var(--warning-subtle);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
+  --color-destructive-subtle: var(--destructive-subtle);
+
+  /* Surfaces */
   --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
-  --radius-sm: calc(var(--radius) * 0.5);
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Categorical chart palette (blue-led, colorblind-considerate) */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+
+  /* Radius scale (subtle, cohesive) */
+  --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
-  --radius-lg: var(--radius);
-  --radius-xl: var(--radius);
-  --radius-2xl: var(--radius);
-  --radius-3xl: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
+  --radius-2xl: calc(var(--radius) + 16px);
 
+  /* Elevation — enterprise-subtle (override Tailwind defaults) */
+  --shadow-xs: 0 1px 2px 0 oklch(0.2 0.03 256 / 0.05);
+  --shadow-sm: 0 1px 2px 0 oklch(0.2 0.03 256 / 0.06), 0 1px 3px 0 oklch(0.2 0.03 256 / 0.08);
+  --shadow-md: 0 2px 4px -1px oklch(0.2 0.03 256 / 0.06), 0 4px 12px -2px oklch(0.2 0.03 256 / 0.1);
+  --shadow-lg: 0 4px 8px -2px oklch(0.2 0.03 256 / 0.08), 0 12px 28px -4px oklch(0.2 0.03 256 / 0.14);
+  --shadow-xl: 0 8px 16px -4px oklch(0.2 0.03 256 / 0.1), 0 24px 48px -8px oklch(0.2 0.03 256 / 0.18);
+
+  /* Type scale — compact, data-first (8h/day legibility) */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 14px;
   --text-xs: 12px;
   --text-xs--line-height: 16px;
   --text-sm: 13px;
@@ -62,81 +103,136 @@
   --text-xl--line-height: 28px;
   --text-2xl: 24px;
   --text-2xl--line-height: 32px;
-  --text-3xl: 28px;
-  --text-3xl--line-height: 36px;
+  --text-3xl: 30px;
+  --text-3xl--line-height: 38px;
+  --text-4xl: 36px;
+  --text-4xl--line-height: 44px;
 }
 
+/* -------------------------------------------------------------------------------------------
+   LIGHT THEME — white canvas, faint cool-gray surfaces, OCTIEN blue accents.
+   ------------------------------------------------------------------------------------------- */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.205 0 0);
+  --background: oklch(0.994 0.001 256);
+  --foreground: oklch(0.21 0.02 256);
+
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.205 0 0);
+  --card-foreground: oklch(0.21 0.02 256);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.205 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.205 0 0);
-  --success: oklch(0.627 0.17 142.9);
-  --success-foreground: oklch(1 0 0);
-  --info: oklch(0.55 0.15 250);
-  --info-foreground: oklch(1 0 0);
-  --warning: oklch(0.75 0.18 70);
-  --warning-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.02 256);
+
+  /* OCTIEN blue */
+  --primary: oklch(0.548 0.176 256);
+  --primary-foreground: oklch(0.99 0.003 256);
+  --primary-hover: oklch(0.5 0.182 256);
+  --primary-active: oklch(0.455 0.18 256);
+  --primary-subtle: oklch(0.955 0.022 256);
+  --primary-subtle-foreground: oklch(0.45 0.18 256);
+
+  --secondary: oklch(0.968 0.006 256);
+  --secondary-foreground: oklch(0.28 0.03 256);
+  --muted: oklch(0.968 0.006 256);
+  --muted-foreground: oklch(0.522 0.024 256);
+  --accent: oklch(0.958 0.012 256);
+  --accent-foreground: oklch(0.3 0.04 256);
+
+  --border: oklch(0.917 0.008 256);
+  --border-strong: oklch(0.86 0.012 256);
+  --input: oklch(0.917 0.008 256);
+  --ring: oklch(0.548 0.176 256);
+
+  --success: oklch(0.61 0.145 150);
+  --success-foreground: oklch(0.99 0 0);
+  --success-subtle: oklch(0.95 0.04 150);
+  --info: oklch(0.58 0.13 236);
+  --info-foreground: oklch(0.99 0 0);
+  --info-subtle: oklch(0.955 0.03 236);
+  --warning: oklch(0.72 0.155 72);
+  --warning-foreground: oklch(0.28 0.05 72);
+  --warning-subtle: oklch(0.96 0.05 78);
+  --destructive: oklch(0.585 0.212 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --destructive-subtle: oklch(0.955 0.035 25);
+
+  --chart-1: oklch(0.548 0.176 256);
+  --chart-2: oklch(0.66 0.13 214);
+  --chart-3: oklch(0.55 0.19 288);
+  --chart-4: oklch(0.66 0.145 152);
+  --chart-5: oklch(0.74 0.15 74);
+  --chart-6: oklch(0.62 0.2 16);
+
   --radius: 0.5rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.205 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  --sidebar: oklch(0.985 0.004 256);
+  --sidebar-foreground: oklch(0.3 0.025 256);
+  --sidebar-primary: oklch(0.548 0.176 256);
+  --sidebar-primary-foreground: oklch(0.99 0.003 256);
+  --sidebar-accent: oklch(0.955 0.018 256);
+  --sidebar-accent-foreground: oklch(0.42 0.14 256);
+  --sidebar-border: oklch(0.917 0.008 256);
+  --sidebar-ring: oklch(0.548 0.176 256);
 }
 
+/* -------------------------------------------------------------------------------------------
+   DARK THEME — a true enterprise dark: soft "blue-black" canvas, deep blue-gray elevated
+   surfaces, brighter blue accents, comfortable (not harsh) contrast. NOT an inversion.
+   ------------------------------------------------------------------------------------------- */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --success: oklch(0.55 0.17 142.9);
-  --success-foreground: oklch(0.985 0 0);
-  --info: oklch(0.5 0.15 250);
-  --info-foreground: oklch(0.985 0 0);
-  --warning: oklch(0.7 0.18 70);
-  --warning-foreground: oklch(0.145 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.17 0.014 256);
+  --foreground: oklch(0.955 0.006 256);
+
+  --card: oklch(0.208 0.017 256);
+  --card-foreground: oklch(0.955 0.006 256);
+  --popover: oklch(0.216 0.018 256);
+  --popover-foreground: oklch(0.955 0.006 256);
+
+  --primary: oklch(0.63 0.168 256);
+  --primary-foreground: oklch(0.16 0.02 256);
+  --primary-hover: oklch(0.68 0.16 256);
+  --primary-active: oklch(0.6 0.17 256);
+  --primary-subtle: oklch(0.3 0.06 256);
+  --primary-subtle-foreground: oklch(0.82 0.09 256);
+
+  --secondary: oklch(0.268 0.02 256);
+  --secondary-foreground: oklch(0.955 0.006 256);
+  --muted: oklch(0.262 0.018 256);
+  --muted-foreground: oklch(0.706 0.022 256);
+  --accent: oklch(0.29 0.026 256);
+  --accent-foreground: oklch(0.955 0.006 256);
+
+  --border: oklch(0.3 0.02 256);
+  --border-strong: oklch(0.38 0.026 256);
+  --input: oklch(0.32 0.022 256);
+  --ring: oklch(0.63 0.168 256);
+
+  --success: oklch(0.68 0.15 152);
+  --success-foreground: oklch(0.16 0.02 152);
+  --success-subtle: oklch(0.3 0.06 152);
+  --info: oklch(0.68 0.13 236);
+  --info-foreground: oklch(0.16 0.02 236);
+  --info-subtle: oklch(0.3 0.06 236);
+  --warning: oklch(0.78 0.145 76);
+  --warning-foreground: oklch(0.2 0.03 76);
+  --warning-subtle: oklch(0.32 0.06 76);
+  --destructive: oklch(0.66 0.19 22);
+  --destructive-foreground: oklch(0.16 0.02 22);
+  --destructive-subtle: oklch(0.32 0.08 22);
+
+  --chart-1: oklch(0.63 0.168 256);
+  --chart-2: oklch(0.72 0.12 212);
+  --chart-3: oklch(0.66 0.17 290);
+  --chart-4: oklch(0.72 0.15 152);
+  --chart-5: oklch(0.8 0.14 78);
+  --chart-6: oklch(0.68 0.19 18);
+
+  --sidebar: oklch(0.194 0.016 256);
+  --sidebar-foreground: oklch(0.86 0.014 256);
+  --sidebar-primary: oklch(0.63 0.168 256);
+  --sidebar-primary-foreground: oklch(0.16 0.02 256);
+  --sidebar-accent: oklch(0.28 0.03 256);
+  --sidebar-accent-foreground: oklch(0.86 0.09 256);
+  --sidebar-border: oklch(0.3 0.02 256);
+  --sidebar-ring: oklch(0.63 0.168 256);
 }
 
 @layer base {
@@ -145,15 +241,123 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
   html {
     @apply font-sans;
   }
+  /* Numeric data (KPIs, tables, ledgers) — tabular figures for clean column alignment. */
+  .tabular-nums,
+  th[data-numeric],
+  td[data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Respect reduced-motion globally. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ============================================================================================
+   Enterprise scrollbar — the ONE scrollbar treatment for the ENTIRE ERP (sidebar, command palette,
+   global search, notification center, drawers/sheets, dropdowns, tables, feeds, timelines, audit
+   panels, main content — every scrollable container). Thin (~5px), fully rounded, OCTIEN-blue thumb
+   from tokens (never hardcoded): HIDDEN while idle, fades in on hover/focus of its container,
+   brightens on thumb hover, strongest while dragging. Momentum + overscroll-contain. Chromium
+   (::-webkit-scrollbar) + Firefox (scrollbar-*). There is exactly ONE variation — do NOT add another
+   scrollbar utility or component-specific scrollbar CSS; apply `.scrollbar-enterprise` (usually via
+   `EnterpriseScrollArea`) instead.
+   ============================================================================================ */
+@layer utilities {
+  .scrollbar-enterprise {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent; /* idle: invisible */
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch; /* momentum */
+    transition: scrollbar-color 200ms ease;
+  }
+  /* Reveal the OCTIEN-blue thumb only while the container is hovered or holds focus (idle = hidden). */
+  .scrollbar-enterprise:hover,
+  .scrollbar-enterprise:focus-within {
+    scrollbar-color: color-mix(in oklab, var(--primary) 60%, transparent) transparent;
+  }
+  .scrollbar-enterprise::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  .scrollbar-enterprise::-webkit-scrollbar-track,
+  .scrollbar-enterprise::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .scrollbar-enterprise::-webkit-scrollbar-thumb {
+    /* 2px transparent border + padding-box clip → ~5px visible thumb inside the 9px gutter. */
+    background-color: transparent;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 9999px;
+    transition: background-color 200ms ease;
+  }
+  .scrollbar-enterprise:hover::-webkit-scrollbar-thumb,
+  .scrollbar-enterprise:focus-within::-webkit-scrollbar-thumb {
+    background-color: color-mix(in oklab, var(--primary) 60%, transparent);
+  }
+  .scrollbar-enterprise:hover::-webkit-scrollbar-thumb:hover,
+  .scrollbar-enterprise:focus-within::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklab, var(--primary) 80%, transparent);
+  }
+  .scrollbar-enterprise::-webkit-scrollbar-thumb:active {
+    background-color: var(--primary);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scrollbar-enterprise,
+    .scrollbar-enterprise::-webkit-scrollbar-thumb {
+      transition: none;
+    }
+  }
+}
+
+/* ============================================================================================
+   Overlay entrance animations — the ONE set of slide/fade utilities for shell overlays (mobile nav
+   drawer, AI panel sheet). Self-contained keyframes (own transform, no base-offset dependency) so
+   they always settle at translate 0 — unlike tailwindcss-animate's `slide-in-*`, which leaves a
+   residual base transform if its duration mechanism misfires. Reduced-motion collapses to no motion.
+   ============================================================================================ */
+@keyframes octien-slide-in-left {
+  from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes octien-slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes octien-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@layer utilities {
+  .animate-drawer-left { animation: octien-slide-in-left 200ms cubic-bezier(0.32, 0.72, 0, 1); }
+  .animate-drawer-right { animation: octien-slide-in-right 200ms cubic-bezier(0.32, 0.72, 0, 1); }
+  .animate-overlay-fade { animation: octien-fade-in 200ms ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-drawer-left,
+    .animate-drawer-right,
+    .animate-overlay-fade {
+      animation: none;
+    }
+  }
 }
 
 /* Branding: keep the "Powered by Aeterex" watermark (and any .no-print element) off printed
-   pages, PDFs and print previews. The watermark also carries the Tailwind `print:hidden`
-   variant; this rule is a belt-and-braces fallback for anything tagged .no-print. */
+   pages, PDFs and print previews. */
 @media print {
   .no-print {
     display: none !important;

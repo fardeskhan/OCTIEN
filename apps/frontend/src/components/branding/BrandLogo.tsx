@@ -34,9 +34,9 @@ export function BrandLogo({
       <img
         src={branding.logo.mark}
         alt={label}
-        width={size}
         height={size}
-        style={{ height: size, width: size }}
+        // Height-driven; width auto-preserves the logo's aspect ratio (the official mark isn't square).
+        style={{ height: size, width: "auto" }}
       />
       {variant === "full" && (
         <span

@@ -132,7 +132,7 @@ export function EnterpriseImportDialog({
           </label>
 
           {rows.length > 0 && (
-            <div className="max-h-56 overflow-auto rounded-md border border-border">
+            <div className="scrollbar-enterprise max-h-56 overflow-auto rounded-md border border-border">
               <table className="w-full text-left text-xs">
                 <thead className="sticky top-0 bg-muted/40">
                   <tr>

@@ -40,6 +40,7 @@ export const auth = betterAuth({
 
     // Vercel
     "https://cosmyerp-mu.vercel.app",
+    "https://octien.vercel.app",
 
     // Netlify
     "https://cosmyerp.netlify.app",

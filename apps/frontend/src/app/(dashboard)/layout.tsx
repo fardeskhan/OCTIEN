@@ -1,7 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { redirect } from "next/navigation";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Topbar } from "@/components/layout/topbar";
+import { EnterpriseShell, EnterpriseTopbar } from "@/components/enterprise/shell";
 import { PoweredByAeterex } from "@/components/branding/PoweredByAeterex";
 import { getSession, requireBusinessContext } from "@/lib/server-auth";
 import { db } from "@/lib/db";
@@ -17,10 +16,10 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  // Fetch all businesses the user has membership to
+  // Fetch all businesses the user has membership to (role included for the account menu display).
   const memberships = await db.membership.findMany({
     where: { userId: session.user.id },
-    include: { business: true },
+    include: { business: true, role: true },
   });
 
   const businesses = memberships.map((m) => m.business);
@@ -59,21 +58,23 @@ export default async function DashboardLayout({
     }
   }
 
+  // Display-only labels for the account menu (current workspace + role).
+  const currentMembership = memberships.find((m) => m.businessId === currentBusinessId);
+  const workspaceName = businesses.find((b) => b.id === currentBusinessId)?.name;
+  const roleName = currentMembership?.role?.name;
+
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar userPermissions={permissions} />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar
-          user={session.user}
-          businesses={businesses}
-          currentBusinessId={currentBusinessId}
-        />
-        <main className="flex-1 overflow-y-auto bg-muted/30 p-6">
-          {children}
-        </main>
-      </div>
+    <>
+      <EnterpriseShell
+        permissions={permissions}
+        businesses={businesses}
+        currentBusinessId={currentBusinessId}
+        topbar={<EnterpriseTopbar user={session.user} workspace={workspaceName} role={roleName} />}
+      >
+        {children}
+      </EnterpriseShell>
       {/* Injected once for every authenticated page; hidden on auth pages and in print. */}
       <PoweredByAeterex />
-    </div>
+    </>
   );
 }
