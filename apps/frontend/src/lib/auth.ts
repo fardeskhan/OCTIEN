@@ -41,6 +41,8 @@ export const auth = betterAuth({
     // Vercel
     "https://cosmyerp-mu.vercel.app",
     "https://octien.vercel.app",
+    // IAM enforcement-canary preview (3A-R restricted-principal canary)
+    "https://octien-git-iam-enforcement-canary-fardis-khans-projects.vercel.app",
 
     // Netlify
     "https://cosmyerp.netlify.app",
