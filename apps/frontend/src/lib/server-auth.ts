@@ -2,6 +2,8 @@ import { headers, cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { cache } from "react";
+import { shadowObserve } from "@/lib/iam/shadow";
+import { isInCanaryCohort, enforceDecision } from "@/lib/iam/enforcement";
 
 export const getSession = cache(async () => {
   return await auth.api.getSession({
@@ -111,13 +113,46 @@ function isSuperAdmin(role: { name: string; isSystem: boolean }): boolean {
 }
 
 export async function requirePermission(permissionString: string) {
-  const { membership, permissions } = await requireBusinessContext();
+  const { membership, permissions, userId, currentBusinessId } = await requireBusinessContext();
 
-  if (isSuperAdmin(membership.role)) {
-    return true; // Owner / Super Admin have all permissions
+  // The authoritative (legacy) decision — behaviour is identical to before: Owner/Super Admin
+  // bypass, otherwise the flattened permission list must contain the requested permission.
+  const superAdmin = isSuperAdmin(membership.role);
+  const legacyAllow = superAdmin || permissions.includes(permissionString);
+
+  // IAM Increment 2E/2F — in-request SHADOW (observe-only). Flag-gated (default OFF ⇒ inert),
+  // sampled, fail-open, non-blocking. Never changes the decision below; legacy stays authoritative.
+  if (process.env.IAM_SHADOW === "1") {
+    void shadowObserve({
+      userId,
+      entityId: currentBusinessId,
+      permissionString,
+      legacyDecision: legacyAllow ? "ALLOW" : "DENY",
+      superAdmin,
+    }).catch(() => {});
   }
 
-  if (!permissions.includes(permissionString)) {
+  // IAM Increment 3A — ENFORCEMENT CANARY (cohort-gated, default OFF ⇒ inert). The OCTIEN engine
+  // participates authoritatively for a tiny cohort, but under the safe-canary rule it only agrees
+  // with legacy — on mismatch/error the legacy decision stands (no lockout). Awaited (this is the
+  // real authoritative-path cost). Belt-and-suspenders: any unexpected throw falls back to legacy.
+  let finalAllow = legacyAllow;
+  if (isInCanaryCohort(userId)) {
+    try {
+      const final = await enforceDecision({
+        userId,
+        entityId: currentBusinessId,
+        permissionString,
+        legacyDecision: legacyAllow ? "ALLOW" : "DENY",
+        superAdmin,
+      });
+      finalAllow = final === "ALLOW";
+    } catch {
+      finalAllow = legacyAllow; // fail to legacy — never lock out
+    }
+  }
+
+  if (!finalAllow) {
     throw new Error(`Forbidden: Requires permission ${permissionString}`);
   }
 

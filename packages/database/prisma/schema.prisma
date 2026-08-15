@@ -449,24 +449,24 @@ model Product {
 }
 
 model ProductVariant {
-  id               String            @id @default(cuid())
-  businessId       String
-  productId        String
-  sku              String?           @unique
-  name             String
-  unitId           String
-  price            Float             @default(0.0)
-  cost             Float             @default(0.0)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  deletedAt        DateTime?
-  inventory        InventoryRecord[]
-  unit             Unit              @relation(fields: [unitId], references: [id])
-  product          Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
-  quotationLines   QuotationLine[]
-  salesOrderLines  SalesOrderLine[]
-  salesReturnLines SalesReturnLine[]
-  shipmentLines    ShipmentLine[]
+  id                       String                    @id @default(cuid())
+  businessId               String
+  productId                String
+  sku                      String?                   @unique
+  name                     String
+  unitId                   String
+  price                    Float                     @default(0.0)
+  cost                     Float                     @default(0.0)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  deletedAt                DateTime?
+  inventory                InventoryRecord[]
+  unit                     Unit                      @relation(fields: [unitId], references: [id])
+  product                  Product                   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quotationLines           QuotationLine[]
+  salesOrderLines          SalesOrderLine[]
+  salesReturnLines         SalesReturnLine[]
+  shipmentLines            ShipmentLine[]
   purchaseOrderLines       PurchaseOrderLine[]
   goodsReceiptLines        GoodsReceiptLine[]
   purchaseRequisitionLines PurchaseRequisitionLine[]
@@ -611,14 +611,14 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderLine {
-  id            String        @id @default(cuid())
+  id            String         @id @default(cuid())
   poId          String
   variantId     String
   quantity      Float
   unitPrice     Float
   totalPrice    Float
-  receivedQty   Float         @default(0.0)
-  purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  receivedQty   Float          @default(0.0)
+  purchaseOrder PurchaseOrder  @relation(fields: [poId], references: [id], onDelete: Cascade)
   variant       ProductVariant @relation(fields: [variantId], references: [id])
 
   @@map("purchase_order_lines")
@@ -1898,6 +1898,419 @@ model RecurringCommitment {
 
   @@index([businessId])
   @@map("recurring_commitments")
+}
+
+// =============================================================================
+// OCTIEN IAM — Identity & Access (EXPAND phase — additive, alongside legacy RBAC)
+// -----------------------------------------------------------------------------
+// Introduced by docs/platform/OCTIEN_IAM_IMPLEMENTATION_PLAN.md. These `iam_*`
+// tables COEXIST with the legacy Tenant/Business/Membership/Role/Permission model.
+// Nothing here is read or enforced yet — backfill, the Permission Engine, and
+// enforcement are LATER increments. During Expand there are NO FK relations to
+// legacy tables (legacy refs are held as plain, indexed id columns); legacy
+// linkage for backfill lives on the NEW tables as `legacy*Id` unique columns, so
+// this increment does not modify a single existing model.
+// =============================================================================
+
+/// Authorization actor; 1:1 with Better Auth User (id == User.id). AuthN stays in
+/// Better Auth; AuthZ lives here. (OCTIEN_IDENTITY_ARCHITECTURE.md)
+model Principal {
+  id                 String          @id // == Better Auth User.id (no DB FK during Expand)
+  kind               PrincipalKind   @default(USER)
+  organizationId     String
+  state              PrincipalState  @default(ACTIVE)
+  defaultWorkspaceId String?
+  subjectPrincipalId String? // AI agent acts on behalf of this principal
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  grants             Grant[]
+  iamAuditEvents     IamAuditEvent[] @relation("ActorPrincipal")
+
+  @@index([organizationId, state])
+  @@map("iam_principals")
+}
+
+/// Isolation boundary (target of legacy Tenant). (OCTIEN_ORGANIZATION_MODEL.md)
+model Organization {
+  id             String      @id @default(cuid())
+  legacyTenantId String?     @unique // backfill linkage → tenants.id
+  name           String
+  slug           String      @unique
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  workspaces     Workspace[]
+  entities       Entity[]
+  projects       Project[]
+
+  @@map("iam_organizations")
+}
+
+/// Operating environment within an Organization (Production/Sandbox/Demo).
+model Workspace {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  kind           WorkspaceKind @default(PRODUCTION)
+  state          NodeState     @default(ACTIVE)
+  createdAt      DateTime      @default(now())
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entities       Entity[]
+
+  @@index([organizationId, state])
+  @@map("iam_workspaces")
+}
+
+/// Installable definition of an entity kind (target of legacy BusinessType).
+model EntityTemplate {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  name           String
+  version        String   @default("1.0.0")
+  lifecycleState String   @default("Stable")
+  entities       Entity[]
+
+  @@map("iam_entity_templates")
+}
+
+/// Sector-neutral operating unit (target of legacy Business).
+model Entity {
+  id               String          @id @default(cuid())
+  legacyBusinessId String?         @unique // backfill linkage → businesses.id
+  organizationId   String
+  workspaceId      String
+  entityTemplateId String?
+  name             String
+  slug             String          @unique
+  status           String          @default("ACTIVE")
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  organization     Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id])
+  entityTemplate   EntityTemplate? @relation(fields: [entityTemplateId], references: [id])
+  locations        Location[]
+  departments      Department[]
+
+  @@index([organizationId])
+  @@index([workspaceId])
+  @@map("iam_entities")
+}
+
+/// Node in the arbitrary-depth geographic tree; `path` is a materialized path
+/// (e.g. "IN/MH/PN/PN-1") so subtree tests are index-friendly prefix scans.
+model Location {
+  id           String     @id @default(cuid())
+  entityId     String
+  parentId     String?
+  type         String // COUNTRY | STATE | REGION | DISTRICT | CITY | BRANCH | WAREHOUSE | ...
+  name         String
+  path         String
+  state        NodeState  @default(ACTIVE)
+  isEntityRoot Boolean    @default(false) // synthetic root for legacy record placement
+  createdAt    DateTime   @default(now())
+  entity       Entity     @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  parent       Location?  @relation("LocationTree", fields: [parentId], references: [id])
+  children     Location[] @relation("LocationTree")
+
+  @@index([entityId])
+  @@index([entityId, path])
+  @@map("iam_locations")
+}
+
+/// Function within an Entity (Sales, Finance, Marketing…).
+model Department {
+  id       String    @id @default(cuid())
+  entityId String
+  name     String
+  state    NodeState @default(ACTIVE)
+  entity   Entity    @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  teams    Team[]
+
+  @@index([entityId])
+  @@map("iam_departments")
+}
+
+/// Working group within a Department.
+model Team {
+  id           String     @id @default(cuid())
+  departmentId String
+  name         String
+  state        NodeState  @default(ACTIVE)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@index([departmentId])
+  @@map("iam_teams")
+}
+
+/// Cross-cutting unit of work; a first-class scope dimension.
+model Project {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  state          NodeState     @default(ACTIVE)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  links          ProjectLink[]
+
+  @@index([organizationId])
+  @@map("iam_projects")
+}
+
+/// Attaches a Project across Entities/Departments (cross-cutting spans).
+model ProjectLink {
+  id           String  @id @default(cuid())
+  projectId    String
+  entityId     String?
+  departmentId String?
+  project      Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("iam_project_links")
+}
+
+/// Named bundle of Permissions (composed into Roles).
+model PermissionGroup {
+  id             String            @id @default(cuid())
+  organizationId String? // null = platform-standard group
+  key            String
+  name           String
+  permissions    GroupPermission[]
+  roleGroups     RoleGroup[]
+
+  @@unique([organizationId, key])
+  @@map("iam_permission_groups")
+}
+
+/// PermissionGroup ↔ legacy Permission (permissionId → permissions.id; no FK during Expand).
+model GroupPermission {
+  id           String          @id @default(cuid())
+  groupId      String
+  permissionId String
+  group        PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, permissionId])
+  @@map("iam_group_permissions")
+}
+
+/// legacy Role ↔ PermissionGroup (roleId → roles.id; no FK during Expand).
+model RoleGroup {
+  id      String          @id @default(cuid())
+  roleId  String
+  groupId String
+  group   PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, groupId])
+  @@map("iam_role_groups")
+}
+
+/// The concrete grant: Principal ← Role @ Scope (+ time bounds). Replaces Membership.
+/// Many per Principal (multi-role). roleId → legacy roles.id (no FK during Expand).
+model Grant {
+  id                 String     @id @default(cuid())
+  principalId        String
+  roleId             String
+  scopeId            String
+  effect             Effect     @default(ALLOW)
+  startAt            DateTime?
+  endAt              DateTime?
+  state              GrantState @default(ACTIVE)
+  legacyMembershipId String?    @unique // backfill linkage → memberships.id
+  createdBy          String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  principal          Principal  @relation(fields: [principalId], references: [id], onDelete: Cascade)
+  scope              Scope      @relation(fields: [scopeId], references: [id])
+
+  @@index([principalId, state])
+  @@index([roleId])
+  @@map("iam_grants")
+}
+
+/// A Scope is a conjunction of normalized dimension rows (approved: not a JSON blob).
+model Scope {
+  id         String           @id @default(cuid())
+  dimensions ScopeDimension[]
+  grants     Grant[]
+  policies   Policy[]
+
+  @@map("iam_scopes")
+}
+
+/// One constraint on one dimension of a Scope.
+model ScopeDimension {
+  id        String    @id @default(cuid())
+  scopeId   String
+  dimension ScopeDim
+  nodeId    String? // structural node ref (Location/Entity/Department/… id)
+  valueKey  String? // resource/field/capability key
+  mode      ScopeMode @default(EXACT)
+  scope     Scope     @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  @@index([scopeId])
+  @@index([dimension, nodeId])
+  @@map("iam_scope_dimensions")
+}
+
+/// ABAC overlay: conditional ALLOW/DENY with an explicit condition expression.
+model Policy {
+  id                String   @id @default(cuid())
+  organizationId    String
+  effect            Effect
+  targetResourceKey String?
+  targetActionKey   String?
+  targetField       String?
+  conditionExpr     String
+  scopeId           String
+  createdAt         DateTime @default(now())
+  scope             Scope    @relation(fields: [scopeId], references: [id])
+
+  @@index([organizationId])
+  @@map("iam_policies")
+}
+
+/// Self-registering module (manifest). Canonical source of Resources/Actions.
+model Module {
+  id             String               @id @default(cuid())
+  key            String               @unique
+  name           String
+  version        String               @default("1.0.0")
+  lifecycleState String               @default("Stable")
+  resources      ResourceDefinition[]
+
+  @@map("iam_modules")
+}
+
+/// A business-object type registered by a Module (e.g. invoice, patient).
+model ResourceDefinition {
+  id       String             @id @default(cuid())
+  moduleId String
+  key      String
+  name     String
+  module   Module             @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  actions  ActionDefinition[]
+
+  @@unique([moduleId, key])
+  @@map("iam_resource_definitions")
+}
+
+/// A verb registered on a ResourceDefinition (e.g. read, approve). Permissions
+/// are DERIVED from these — never hand-seeded per industry.
+model ActionDefinition {
+  id            String             @id @default(cuid())
+  resourceDefId String
+  key           String
+  resourceDef   ResourceDefinition @relation(fields: [resourceDefId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceDefId, key])
+  @@map("iam_action_definitions")
+}
+
+/// Immutable audit of IAM changes; feeds Effective Access history.
+model IamAuditEvent {
+  id               String         @id @default(cuid())
+  organizationId   String
+  actorPrincipalId String?
+  action           IamAuditAction
+  targetRef        String?
+  before           Json?
+  after            Json?
+  reason           String?
+  at               DateTime       @default(now())
+  actor            Principal?     @relation("ActorPrincipal", fields: [actorPrincipalId], references: [id])
+
+  @@index([organizationId, at])
+  @@index([actorPrincipalId, at])
+  @@map("iam_audit_events")
+}
+
+/// Migration/backfill bookkeeping (idempotency, parity, checksums, rollback).
+model MigrationAudit {
+  id             String    @id @default(cuid())
+  step           String
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  rowsAffected   Int?
+  checksumBefore String?
+  checksumAfter  String?
+  status         String    @default("STARTED")
+  notes          String?
+
+  @@index([step])
+  @@map("iam_migration_audit")
+}
+
+// ---- OCTIEN IAM enums --------------------------------------------------------
+
+enum PrincipalKind {
+  USER
+  AI_AGENT
+  SERVICE
+}
+
+enum PrincipalState {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  LOCKED
+  OFFBOARDED
+}
+
+enum WorkspaceKind {
+  PRODUCTION
+  SANDBOX
+  DEMO
+}
+
+enum NodeState {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum Effect {
+  ALLOW
+  DENY
+}
+
+enum GrantState {
+  ACTIVE
+  SUSPENDED
+}
+
+enum ScopeDim {
+  ORGANIZATION
+  WORKSPACE
+  ENTITY
+  LOCATION
+  DEPARTMENT
+  TEAM
+  PROJECT
+  MODULE
+  CAPABILITY
+  RESOURCE
+  RECORD
+  FIELD
+}
+
+enum ScopeMode {
+  EXACT
+  SUBTREE
+  EXCLUDE
+}
+
+enum IamAuditAction {
+  GRANT_CREATED
+  GRANT_REVOKED
+  GRANT_SUSPENDED
+  ROLE_EDITED
+  POLICY_CHANGED
+  SCOPE_NARROWED
+  NODE_SUSPENDED
+  NODE_ARCHIVED
+  PRINCIPAL_SUSPENDED
+  PRINCIPAL_OFFBOARDED
+  BREAK_GLASS_ACTIVATED
+  IMPERSONATION_STARTED
+  IMPERSONATION_STOPPED
+  MODULE_REGISTERED
 }
 
 enum ProductType {
