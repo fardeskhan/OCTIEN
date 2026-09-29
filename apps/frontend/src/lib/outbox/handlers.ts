@@ -257,126 +257,111 @@ registerHandler("ShipmentCreated", async (event) => {
 registerHandler("ShipmentDispatched", async (event) => {
   const payload = event.payload as any;
   const { soId, shipmentId } = payload;
-  
+
   const shipment = await db.shipment.findUnique({ where: { id: shipmentId }, include: { lines: true } });
+  if (!shipment) return;
 
-  // Trigger InventoryStockOutRequested
-  await db.outboxEventRecord.create({
-    data: {
-      eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      eventType: "InventoryStockOutRequested",
-      aggregateId: shipmentId,
-      aggregateVersion: 1,
-      businessId: event.businessId,
-      tenantId: event.tenantId,
-      occurredAt: new Date(),
-      payload: { 
-          shipmentId, 
-          warehouseId: shipment?.warehouseId, 
-          lines: shipment?.lines || [] 
-      },
-      status: "PENDING"
+  // Ledger accounts (idempotent upserts) before the transaction.
+  await ensureSalesLedgerAccounts(event.businessId);
+
+  // Atomic + idempotent: the stock-out request, the shipment invoice + its journal, and COGS all
+  // commit or roll back together. Each sub-step is guarded so a replayed/redelivered ShipmentDispatched
+  // is a no-op — no duplicate stock-out event, invoice, invoice journal or COGS journal. (This replaces
+  // the previous non-transactional version, where a mid-handler failure left a partial state.)
+  await db.$transaction(async (tx) => {
+    // 1. Request inventory stock-out — once per shipment (was emitted unconditionally before).
+    const stockOutRequested = await tx.outboxEventRecord.findFirst({
+      where: { businessId: event.businessId, eventType: "InventoryStockOutRequested", aggregateId: shipmentId },
+    });
+    if (!stockOutRequested) {
+      await tx.outboxEventRecord.create({
+        data: {
+          eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          eventType: "InventoryStockOutRequested",
+          aggregateId: shipmentId,
+          aggregateVersion: 1,
+          businessId: event.businessId,
+          tenantId: event.tenantId,
+          occurredAt: new Date(),
+          payload: { shipmentId, warehouseId: shipment.warehouseId, lines: shipment.lines },
+          status: "PENDING",
+        },
+      });
     }
-  });
 
-  // Create CustomerInvoice (Idempotent)
-  if (soId) {
-    const so = await db.salesOrder.findUnique({ where: { id: soId }, include: { lines: true } });
-    if (so && shipment) {
-      const existingInvoice = await db.customerInvoice.findFirst({ where: { sourceType: "SHIPMENT", sourceId: shipmentId } });
-      if (!existingInvoice) {
-        let totalAmount = 0;
-        const invoiceLines = [];
-        for (const line of shipment.lines) {
-          const soLine = so.lines.find(l => l.id === line.soLineId);
-          if (soLine) {
-            const lineTotal = line.shippedQty * soLine.unitPrice;
-            totalAmount += lineTotal;
-            invoiceLines.push({
-              description: "Shipped Goods",
-              quantity: line.shippedQty,
-              unitPrice: soLine.unitPrice,
-              totalPrice: lineTotal
-            });
-          }
+    if (!soId) return;
+    const so = await tx.salesOrder.findUnique({ where: { id: soId }, include: { lines: true } });
+    if (!so) return;
+
+    // 2. Shipment invoice + its GL journal — once per shipment.
+    const existingInvoice = await tx.customerInvoice.findFirst({ where: { sourceType: "SHIPMENT", sourceId: shipmentId } });
+    if (!existingInvoice) {
+      let totalAmount = 0;
+      const invoiceLines = [];
+      for (const line of shipment.lines) {
+        const soLine = so.lines.find((l) => l.id === line.soLineId);
+        if (soLine) {
+          const lineTotal = line.shippedQty * soLine.unitPrice;
+          totalAmount += lineTotal;
+          invoiceLines.push({ description: "Shipped Goods", quantity: line.shippedQty, unitPrice: soLine.unitPrice, totalPrice: lineTotal });
         }
-        
-        if (totalAmount > 0) {
-          const suffix = Date.now().toString().slice(-6);
-          const newInvoice = await db.customerInvoice.create({
-            data: {
-              businessId: event.businessId,
-              code: "INV-" + suffix,
-              customerId: so.customerId,
-              currencyId: so.currencyId,
-              totalAmount,
-              remainingAmount: totalAmount,
-              sourceType: "SHIPMENT",
-              sourceId: shipmentId,
-              lines: {
-                create: invoiceLines
-              }
-            }
-          });
-
-          // Post the invoice to the ledger (DR AR / CR Revenue / CR Output GST) so a
-          // shipment-generated invoice hits Finance exactly like a manual one.
-          await ensureSalesLedgerAccounts(event.businessId);
-          await postCustomerInvoiceJournal({
+      }
+      if (totalAmount > 0) {
+        const suffix = Date.now().toString().slice(-6);
+        const newInvoice = await tx.customerInvoice.create({
+          data: {
+            businessId: event.businessId,
+            code: "INV-" + suffix,
+            customerId: so.customerId,
+            currencyId: so.currencyId,
+            totalAmount,
+            remainingAmount: totalAmount,
+            sourceType: "SHIPMENT",
+            sourceId: shipmentId,
+            lines: { create: invoiceLines },
+          },
+        });
+        // Invoice journal posted inside THIS transaction (DR AR / CR Revenue / CR Output GST).
+        await postCustomerInvoiceJournal({ businessId: event.businessId, tenantId: event.tenantId, invoiceId: newInvoice.id, code: newInvoice.code, total: totalAmount, tx });
+        await tx.outboxEventRecord.create({
+          data: {
+            eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            eventType: "CustomerInvoiceCreated",
+            aggregateId: shipmentId,
+            aggregateVersion: 1,
             businessId: event.businessId,
             tenantId: event.tenantId,
-            invoiceId: newInvoice.id,
-            code: newInvoice.code,
-            total: totalAmount,
-          });
-
-          await db.outboxEventRecord.create({
-            data: {
-              eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-              eventType: "CustomerInvoiceCreated",
-              aggregateId: shipmentId,
-              aggregateVersion: 1,
-              businessId: event.businessId,
-              tenantId: event.tenantId,
-              occurredAt: new Date(),
-              payload: { invoiceTotal: totalAmount },
-              status: "PENDING"
-            }
-          });
-        }
-      }
-
-      // Generate COGS Posting
-      let totalCogs = 0;
-      for (const line of shipment.lines) {
-        // Find projection to get average cost
-        const proj = await db.inventoryVariantProjection.findFirst({
-            where: { businessId: event.businessId, variantId: line.variantId }
+            occurredAt: new Date(),
+            payload: { invoiceTotal: totalAmount },
+            status: "PENDING",
+          },
         });
-        const unitCost = proj ? proj.averageCost.toNumber() : 0;
-        totalCogs += (line.shippedQty * unitCost);
-      }
-
-      // Idempotency: COGS for a shipment is uniquely keyed by (SHIPMENT_DISPATCH, shipmentId). A
-      // replayed/concurrent ShipmentDispatched must not post COGS twice, so skip if it already exists.
-      const existingCogs = await db.journalEntry.findFirst({
-        where: { businessId: event.businessId, sourceType: "SHIPMENT_DISPATCH", sourceId: shipmentId }
-      });
-      if (totalCogs > 0 && !existingCogs) {
-          await FinancialPostingService.postEntry({
-              businessId: event.businessId,
-              tenantId: event.tenantId,
-              description: `COGS for Shipment ${shipmentId}`,
-              sourceType: "SHIPMENT_DISPATCH",
-              sourceId: shipmentId,
-              lines: [
-                  { accountCode: "5000", debit: totalCogs }, // 5000 COGS
-                  { accountCode: "1200", credit: totalCogs } // 1200 Inventory Asset
-              ]
-          });
       }
     }
-  }
+
+    // 3. COGS — once per shipment, keyed by (SHIPMENT_DISPATCH, shipmentId), posted in THIS tx.
+    let totalCogs = 0;
+    for (const line of shipment.lines) {
+      const proj = await tx.inventoryVariantProjection.findFirst({ where: { businessId: event.businessId, variantId: line.variantId } });
+      const unitCost = proj ? proj.averageCost.toNumber() : 0;
+      totalCogs += line.shippedQty * unitCost;
+    }
+    const existingCogs = await tx.journalEntry.findFirst({ where: { businessId: event.businessId, sourceType: "SHIPMENT_DISPATCH", sourceId: shipmentId } });
+    if (totalCogs > 0 && !existingCogs) {
+      await FinancialPostingService.postEntry({
+        businessId: event.businessId,
+        tenantId: event.tenantId,
+        tx,
+        description: `COGS for Shipment ${shipmentId}`,
+        sourceType: "SHIPMENT_DISPATCH",
+        sourceId: shipmentId,
+        lines: [
+          { accountCode: "5000", debit: totalCogs }, // 5000 COGS
+          { accountCode: "1200", credit: totalCogs }, // 1200 Inventory Asset
+        ],
+      });
+    }
+  });
 });
 
 registerHandler("InventoryStockOutRequested", async (event) => {
