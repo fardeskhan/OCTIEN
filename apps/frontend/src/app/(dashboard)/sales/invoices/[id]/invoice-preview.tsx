@@ -24,15 +24,25 @@ export function InvoicePreview({ doc, branding }: { doc: InvoiceDocument; brandi
   const router = useRouter();
   const [templateId, setTemplateId] = React.useState<InvoiceTemplateId>(DEFAULT_TEMPLATE_ID);
   const [saving, setSaving] = React.useState(false);
+  // Idempotency key for the CURRENT payment attempt. Held in a ref so it survives re-renders and is
+  // reused if the same attempt is retried (e.g. after a transient failure) — it identifies the
+  // business operation, not a single HTTP call. A brand-new key is minted only once the previous
+  // attempt has definitively succeeded and the user starts a fresh payment.
+  const attemptKeyRef = React.useRef<string | null>(null);
 
   async function markPaid() {
     if (doc.totals.balanceDue <= 0) return;
+    if (!attemptKeyRef.current) attemptKeyRef.current = crypto.randomUUID();
+    const idempotencyKey = attemptKeyRef.current;
     setSaving(true);
     try {
-      await recordInvoicePayment(doc.id, doc.totals.balanceDue);
+      await recordInvoicePayment(doc.id, doc.totals.balanceDue, idempotencyKey);
+      attemptKeyRef.current = null; // attempt completed → the next payment gets a new key
       toast.success("Payment recorded — invoice marked paid");
       router.refresh();
     } catch (err) {
+      // Keep the key so a retry of THIS attempt reuses it (a false-negative failure then replays,
+      // rather than creating a second payment).
       toast.error(err instanceof Error ? err.message : "Failed to record payment");
     } finally {
       setSaving(false);

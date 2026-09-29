@@ -1,10 +1,30 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
 import { logAudit } from "@/lib/audit";
 import { ensureSalesLedgerAccounts, postCustomerInvoiceJournal, applyCustomerPaymentTx } from "@/lib/finance/sales-posting";
 import { revalidatePath } from "next/cache";
+
+/**
+ * A retried payment must target the SAME invoice and amount as the one the key already recorded.
+ * A key reused for a materially different payment (other invoice/amount) is rejected — never silently
+ * replayed — so a reused key cannot turn a different request into a no-op.
+ */
+function assertSamePaymentOp(existing: { invoiceId: string | null; amount: Prisma.Decimal }, invoiceId: string, amount: number) {
+  if (existing.invoiceId !== invoiceId || existing.amount.toNumber() !== Math.round(amount)) {
+    throw new Error("This payment key was already used for a different payment");
+  }
+}
+
+/** True ONLY for a unique-violation on the customer-payment idempotency index — not any other P2002. */
+function isIdempotencyKeyConflict(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") return false;
+  const t = (e.meta as { target?: unknown } | undefined)?.target;
+  const s = Array.isArray(t) ? t.join(",") : typeof t === "string" ? t : "";
+  return s.toLowerCase().includes("idempotency");
+}
 
 export interface InvoiceLineInput {
   description: string;
@@ -130,40 +150,64 @@ export async function recordInvoicePayment(invoiceId: string, amount: number, id
   // Ensure ledger accounts exist (idempotent upserts) before opening the payment transaction.
   await ensureSalesLedgerAccounts(businessId);
 
-  const result = await db.$transaction(async (tx) => {
-    // Opt-in double-submit guard: if a stable key is supplied and a payment already carries it, do
-    // nothing further. (No-op until the UI sends a key; see the doc comment above.)
-    if (idempotencyKey) {
-      const existing = await tx.customerPayment.findFirst({ where: { businessId, invoiceId, reference: idempotencyKey } });
-      if (existing) return { paymentId: existing.id, deduped: true as const, code: "", pay: 0 };
-    }
+  const revalidate = () => {
+    revalidatePath("/sales/invoices");
+    revalidatePath(`/sales/invoices/${invoiceId}`);
+    revalidatePath("/finance/receivables");
+  };
 
-    const inv = await tx.customerInvoice.findFirst({ where: { id: invoiceId, businessId, deletedAt: null } });
-    if (!inv) throw new Error("Invoice not found");
-    if (inv.status === "CANCELLED") throw new Error("Cannot pay a cancelled invoice");
+  try {
+    const result = await db.$transaction(async (tx) => {
+      // Idempotency pre-check FIRST — before clamping — so a replay against a now-settled invoice
+      // returns the original payment instead of failing "nothing to pay". Scoped to this tenant.
+      if (idempotencyKey) {
+        const existing = await tx.customerPayment.findFirst({ where: { businessId, idempotencyKey } });
+        if (existing) {
+          assertSamePaymentOp(existing, invoiceId, amount);
+          return { paymentId: existing.id, deduped: true as const, code: "", pay: 0 };
+        }
+      }
 
-    const pay = Math.min(Math.max(0, Math.round(amount)), inv.remainingAmount.toNumber());
-    if (pay <= 0) throw new Error("Nothing to pay — the invoice is already settled");
-    const newPaid = inv.paidAmount.toNumber() + pay;
-    const newRemaining = inv.totalAmount.toNumber() - newPaid;
+      const inv = await tx.customerInvoice.findFirst({ where: { id: invoiceId, businessId, deletedAt: null } });
+      if (!inv) throw new Error("Invoice not found");
+      if (inv.status === "CANCELLED") throw new Error("Cannot pay a cancelled invoice");
 
-    // Canonical payment application (payment record + cash + AR + GL keyed by payment.id).
-    const payment = await applyCustomerPaymentTx(tx, {
-      businessId, tenantId, userId,
-      invoiceId: inv.id, invoiceCode: inv.code, currencyId: inv.currencyId,
-      amount: pay, newPaid, newRemaining, idempotencyKey,
+      const pay = Math.min(Math.max(0, Math.round(amount)), inv.remainingAmount.toNumber());
+      if (pay <= 0) throw new Error("Nothing to pay — the invoice is already settled");
+      const newPaid = inv.paidAmount.toNumber() + pay;
+      const newRemaining = inv.totalAmount.toNumber() - newPaid;
+
+      // Canonical payment application (payment record + cash + AR + GL keyed by payment.id). The
+      // insert carries idempotencyKey; the partial unique index makes a concurrent duplicate fail.
+      const payment = await applyCustomerPaymentTx(tx, {
+        businessId, tenantId, userId,
+        invoiceId: inv.id, invoiceCode: inv.code, currencyId: inv.currencyId,
+        amount: pay, newPaid, newRemaining, idempotencyKey,
+      });
+
+      return { paymentId: payment.id, deduped: false as const, code: inv.code, pay };
     });
 
-    return { paymentId: payment.id, deduped: false as const, code: inv.code, pay };
-  });
-
-  if (!result.deduped) {
-    await logAudit({ action: "payment", resource: "invoice", resourceId: invoiceId, metadata: { code: result.code, amount: result.pay } });
+    if (!result.deduped) {
+      await logAudit({ action: "payment", resource: "invoice", resourceId: invoiceId, metadata: { code: result.code, amount: result.pay } });
+    }
+    revalidate();
+    return { success: true, paymentId: result.paymentId };
+  } catch (e) {
+    // Concurrent duplicate: the unique index rejected the second insert of the same key and the
+    // transaction aborted. ONLY the idempotency-key conflict is treated as a replay — re-query OUTSIDE
+    // the aborted transaction, within THIS tenant + key, confirm it is the same operation, and return
+    // the winner instead of creating a second payment. Any other P2002 propagates unchanged.
+    if (idempotencyKey && isIdempotencyKeyConflict(e)) {
+      const existing = await db.customerPayment.findFirst({ where: { businessId, idempotencyKey } });
+      if (existing) {
+        assertSamePaymentOp(existing, invoiceId, amount);
+        revalidate();
+        return { success: true, paymentId: existing.id };
+      }
+    }
+    throw e;
   }
-  revalidatePath("/sales/invoices");
-  revalidatePath(`/sales/invoices/${invoiceId}`);
-  revalidatePath("/finance/receivables");
-  return { success: true, paymentId: result.paymentId };
 }
 
 /** Void an invoice — keeps the record for audit, removes it from open AR. */

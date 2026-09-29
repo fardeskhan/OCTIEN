@@ -107,7 +107,9 @@ export async function applyCustomerPaymentTx(
       invoiceId: p.invoiceId,
       amount: new Prisma.Decimal(p.amount),
       currencyId: p.currencyId,
-      reference: p.idempotencyKey ?? undefined,
+      // Dedicated idempotency field (NOT the user-facing `reference`). The partial unique index on
+      // (businessId, idempotencyKey) makes a concurrent duplicate insert fail atomically.
+      idempotencyKey: p.idempotencyKey ?? undefined,
       createdBy: p.userId,
     },
   });

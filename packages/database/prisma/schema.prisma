@@ -1015,6 +1015,11 @@ model CustomerPayment {
   currencyId        String
   paymentDate       DateTime                    @default(now())
   reference         String?
+  // Idempotency key for the payment ATTEMPT (distinct from the user-facing `reference`). Enforced
+  // unique per business by a PARTIAL unique index applied via hand-written SQL (Prisma cannot express
+  // a filtered index): UNIQUE(businessId, idempotencyKey) WHERE idempotencyKey IS NOT NULL. Nullable
+  // so existing/legacy payments (no key) remain valid and are exempt from the constraint.
+  idempotencyKey    String?
   createdBy         String?
   method            PaymentMethod               @default(BANK_TRANSFER)
   allocations       CustomerPaymentAllocation[]
