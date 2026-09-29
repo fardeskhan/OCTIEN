@@ -1,11 +1,9 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { Prisma } from "@prisma/client";
 import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
 import { logAudit } from "@/lib/audit";
-import { ensureSalesLedgerAccounts, postCustomerInvoiceJournal, postCustomerPaymentJournal } from "@/lib/finance/sales-posting";
-import { FinancialPostingService } from "@/lib/finance/posting-engine";
+import { ensureSalesLedgerAccounts, postCustomerInvoiceJournal, applyCustomerPaymentTx } from "@/lib/finance/sales-posting";
 import { revalidatePath } from "next/cache";
 
 export interface InvoiceLineInput {
@@ -43,67 +41,74 @@ export async function createCustomerInvoice(input: {
 
   const total = Math.round(lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0));
   const paid = Math.min(Math.max(0, Math.round(input.paidAmount ?? 0)), total);
-  const remaining = total - paid;
   const code = await nextInvoiceNumber(businessId, business?.slug ?? "biz");
-  const status = remaining <= 0 ? "PAID" : paid > 0 ? "PARTIALLY_PAID" : "ISSUED";
 
-  const invoice = await db.customerInvoice.create({
-    data: {
-      businessId,
-      code,
-      customerId: customer.id,
-      currencyId: currency.id,
-      totalAmount: total,
-      paidAmount: paid,
-      remainingAmount: remaining,
-      status,
-      sourceType: "MANUAL",
-      sourceId: `manual-${code}`,
-      lines: {
-        create: lines.map((l) => ({
-          description: l.description.trim(),
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          totalPrice: Math.round(l.quantity * l.unitPrice),
-        })),
-      },
-    },
-  });
-
-  // Mirror into the receivables ledger so AR reconciles.
-  await db.receivableEntry.create({
-    data: {
-      businessId,
-      customerId: customer.id,
-      sourceType: "CUSTOMER_INVOICE",
-      sourceId: invoice.id,
-      amount: total,
-      paidAmount: paid,
-      dueDate: new Date(new Date().setDate(new Date().getDate() + 15)),
-      status: remaining <= 0 ? "CLOSED" : paid > 0 ? "PARTIALLY_PAID" : "OPEN",
-    },
-  });
-
-  // Post the accounting entries (DR AR / CR Revenue / CR Output GST). An invoice that cannot be
-  // posted to the ledger must not exist — compensate by removing it on failure so we never leave
-  // an unposted invoice (which would make the ledger disagree with receivables).
+  // Ledger accounts must exist before posting (idempotent upserts, outside the transaction).
   await ensureSalesLedgerAccounts(businessId);
-  try {
-    await postCustomerInvoiceJournal({ businessId, tenantId, invoiceId: invoice.id, code, total, approvedBy: userId });
-    if (paid > 0) {
-      await postCustomerPaymentJournal({ businessId, tenantId, invoiceId: invoice.id, code, amount: paid, approvedBy: userId });
-    }
-  } catch (err) {
-    await db.receivableEntry.deleteMany({ where: { sourceType: "CUSTOMER_INVOICE", sourceId: invoice.id } });
-    await db.customerInvoice.delete({ where: { id: invoice.id } });
-    throw new Error(`Invoice not created — ledger posting failed: ${err instanceof Error ? err.message : "unknown error"}`);
-  }
 
-  await logAudit({ action: "create", resource: "invoice", resourceId: invoice.id, metadata: { code, total, customer: customer.name } });
+  // Everything below is ONE atomic transaction: invoice + lines + AR subledger + invoice journal +
+  // (optional) initial payment. Any failure rolls the whole thing back, so we never leave an invoice
+  // whose ledger/receivables disagree — replacing the old create-then-compensating-delete pattern.
+  const invoiceId = await db.$transaction(async (tx) => {
+    // Create the invoice UNPAID; an initial payment (if any) is applied via the canonical payment
+    // path below so it produces a real CustomerPayment + CashTransaction + payment-id-keyed journal.
+    const invoice = await tx.customerInvoice.create({
+      data: {
+        businessId,
+        code,
+        customerId: customer.id,
+        currencyId: currency.id,
+        totalAmount: total,
+        paidAmount: 0,
+        remainingAmount: total,
+        status: "ISSUED",
+        sourceType: "MANUAL",
+        sourceId: `manual-${code}`,
+        lines: {
+          create: lines.map((l) => ({
+            description: l.description.trim(),
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            totalPrice: Math.round(l.quantity * l.unitPrice),
+          })),
+        },
+      },
+    });
+
+    // Mirror into the receivables ledger (OPEN); the initial payment updates it below.
+    await tx.receivableEntry.create({
+      data: {
+        businessId,
+        customerId: customer.id,
+        sourceType: "CUSTOMER_INVOICE",
+        sourceId: invoice.id,
+        amount: total,
+        paidAmount: 0,
+        dueDate: new Date(new Date().setDate(new Date().getDate() + 15)),
+        status: "OPEN",
+      },
+    });
+
+    // Invoice GL (DR AR / CR Revenue / CR Output GST), inside the transaction.
+    await postCustomerInvoiceJournal({ businessId, tenantId, invoiceId: invoice.id, code, total, approvedBy: userId, tx });
+
+    // Initial payment (if any) — canonical path: CustomerPayment + CashTransaction + GL by payment.id.
+    if (paid > 0) {
+      await applyCustomerPaymentTx(tx, {
+        businessId, tenantId, userId,
+        invoiceId: invoice.id, invoiceCode: code, currencyId: currency.id,
+        amount: paid, newPaid: paid, newRemaining: total - paid,
+      });
+    }
+
+    return invoice.id;
+  });
+
+  await logAudit({ action: "create", resource: "invoice", resourceId: invoiceId, metadata: { code, total, customer: customer.name } });
   revalidatePath("/sales/invoices");
   revalidatePath("/finance/receivables");
   revalidatePath("/finance");
-  return { id: invoice.id };
+  return { id: invoiceId };
 }
 
 /**
@@ -141,37 +146,12 @@ export async function recordInvoicePayment(invoiceId: string, amount: number, id
     if (pay <= 0) throw new Error("Nothing to pay — the invoice is already settled");
     const newPaid = inv.paidAmount.toNumber() + pay;
     const newRemaining = inv.totalAmount.toNumber() - newPaid;
-    const status = newRemaining <= 0 ? "PAID" : "PARTIALLY_PAID";
 
-    // 1. Canonical payment record (unique payment.id per payment event).
-    const payment = await tx.customerPayment.create({
-      data: { businessId, invoiceId: inv.id, amount: new Prisma.Decimal(pay), currencyId: inv.currencyId, reference: idempotencyKey ?? undefined, createdBy: userId },
-    });
-
-    // 2. Cash ledger (CASH_IN), referencing the payment.
-    await tx.cashTransaction.create({
-      data: { businessId, type: "CASH_IN", amount: new Prisma.Decimal(pay), currencyId: inv.currencyId, reference: payment.id, description: `Payment for Invoice ${inv.code}`, sourceType: "MANUAL", sourceId: payment.id, createdBy: userId },
-    });
-
-    // 3. Invoice + AR subledger.
-    await tx.customerInvoice.update({ where: { id: inv.id }, data: { paidAmount: newPaid, remainingAmount: newRemaining, status } });
-    await tx.receivableEntry.updateMany({
-      where: { businessId, sourceType: "CUSTOMER_INVOICE", sourceId: inv.id },
-      data: { paidAmount: newPaid, status: newRemaining <= 0 ? "CLOSED" : "PARTIALLY_PAID" },
-    });
-
-    // 4. GL (DR Cash / CR AR) posted INSIDE this transaction, keyed by the unique payment.id.
-    await FinancialPostingService.postEntry({
-      businessId, tenantId, tx,
-      description: `Payment received for invoice ${inv.code}`,
-      reference: inv.code,
-      sourceType: "CUSTOMER_PAYMENT",
-      sourceId: payment.id,
-      approvedBy: userId,
-      lines: [
-        { accountCode: "1000", debit: pay }, // Cash & Bank
-        { accountCode: "1100", credit: pay }, // Accounts Receivable
-      ],
+    // Canonical payment application (payment record + cash + AR + GL keyed by payment.id).
+    const payment = await applyCustomerPaymentTx(tx, {
+      businessId, tenantId, userId,
+      invoiceId: inv.id, invoiceCode: inv.code, currencyId: inv.currencyId,
+      amount: pay, newPaid, newRemaining, idempotencyKey,
     });
 
     return { paymentId: payment.id, deduped: false as const, code: inv.code, pay };

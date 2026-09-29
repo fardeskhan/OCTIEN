@@ -10,6 +10,7 @@
  *   Payment:                          DR Cash & Bank           CR Accounts Receivable
  */
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { FinancialPostingService } from "./posting-engine";
 
 const GST_RATE = 0.18;
@@ -54,6 +55,7 @@ export async function postCustomerInvoiceJournal(p: {
   total: number;
   date?: Date;
   approvedBy?: string;
+  tx?: Prisma.TransactionClient; // when set, posts inside the caller's transaction
 }) {
   const { taxable, gst } = splitInclusiveGst(p.total);
   const lines: { accountCode: string; debit?: number; credit?: number }[] = [
@@ -71,10 +73,91 @@ export async function postCustomerInvoiceJournal(p: {
     sourceId: p.invoiceId,
     date: p.date,
     approvedBy: p.approvedBy,
+    tx: p.tx,
     lines,
   });
 }
 
+/**
+ * Canonical customer-payment application — the SINGLE place a customer payment becomes a
+ * CustomerPayment record + CashTransaction + AR reduction + GL (DR Cash / CR AR) keyed by the unique
+ * payment.id. Runs inside the caller's transaction so the whole payment is atomic. Used by both
+ * recordInvoicePayment (later payments) and createCustomerInvoice (initial payment) so the two paths
+ * cannot drift. The caller must have already loaded/validated the invoice under the caller's
+ * businessId (tenant safety) and computed the new absolute paid/remaining totals.
+ */
+export async function applyCustomerPaymentTx(
+  tx: Prisma.TransactionClient,
+  p: {
+    businessId: string;
+    tenantId: string;
+    userId?: string;
+    invoiceId: string;
+    invoiceCode: string;
+    currencyId: string;
+    amount: number;      // this payment's amount (> 0)
+    newPaid: number;     // invoice paidAmount AFTER this payment (absolute)
+    newRemaining: number; // invoice remainingAmount AFTER this payment (absolute)
+    idempotencyKey?: string;
+  },
+): Promise<{ id: string }> {
+  const payment = await tx.customerPayment.create({
+    data: {
+      businessId: p.businessId,
+      invoiceId: p.invoiceId,
+      amount: new Prisma.Decimal(p.amount),
+      currencyId: p.currencyId,
+      reference: p.idempotencyKey ?? undefined,
+      createdBy: p.userId,
+    },
+  });
+
+  await tx.cashTransaction.create({
+    data: {
+      businessId: p.businessId,
+      type: "CASH_IN",
+      amount: new Prisma.Decimal(p.amount),
+      currencyId: p.currencyId,
+      reference: payment.id,
+      description: `Payment for Invoice ${p.invoiceCode}`,
+      sourceType: "MANUAL",
+      sourceId: payment.id,
+      createdBy: p.userId,
+    },
+  });
+
+  await tx.customerInvoice.update({
+    where: { id: p.invoiceId },
+    data: { paidAmount: p.newPaid, remainingAmount: p.newRemaining, status: p.newRemaining <= 0 ? "PAID" : "PARTIALLY_PAID" },
+  });
+  await tx.receivableEntry.updateMany({
+    where: { businessId: p.businessId, sourceType: "CUSTOMER_INVOICE", sourceId: p.invoiceId },
+    data: { paidAmount: p.newPaid, status: p.newRemaining <= 0 ? "CLOSED" : "PARTIALLY_PAID" },
+  });
+
+  await FinancialPostingService.postEntry({
+    businessId: p.businessId,
+    tenantId: p.tenantId,
+    tx,
+    description: `Payment received for invoice ${p.invoiceCode}`,
+    reference: p.invoiceCode,
+    sourceType: "CUSTOMER_PAYMENT",
+    sourceId: payment.id,
+    approvedBy: p.userId,
+    lines: [
+      { accountCode: ACC.BANK, debit: p.amount },
+      { accountCode: ACC.AR, credit: p.amount },
+    ],
+  });
+
+  return payment;
+}
+
+/**
+ * @deprecated for live use — keys the CUSTOMER_PAYMENT journal by invoiceId, which is NOT unique per
+ * payment (a single invoice has many partial payments). Live payment paths use applyCustomerPaymentTx
+ * (keyed by payment.id). Retained only for the sales verification harness.
+ */
 export async function postCustomerPaymentJournal(p: {
   businessId: string;
   tenantId: string;
