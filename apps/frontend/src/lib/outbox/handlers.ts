@@ -258,7 +258,7 @@ registerHandler("ShipmentDispatched", async (event) => {
   const payload = event.payload as any;
   const { soId, shipmentId } = payload;
 
-  const shipment = await db.shipment.findUnique({ where: { id: shipmentId }, include: { lines: true } });
+  const shipment = await db.shipment.findFirst({ where: { id: shipmentId, businessId: event.businessId }, include: { lines: true } });
   if (!shipment) return;
 
   // Ledger accounts (idempotent upserts) before the transaction.
@@ -290,7 +290,7 @@ registerHandler("ShipmentDispatched", async (event) => {
     }
 
     if (!soId) return;
-    const so = await tx.salesOrder.findUnique({ where: { id: soId }, include: { lines: true } });
+    const so = await tx.salesOrder.findFirst({ where: { id: soId, businessId: event.businessId }, include: { lines: true } });
     if (!so) return;
 
     // 2. Shipment invoice + its GL journal — once per shipment.
@@ -321,21 +321,23 @@ registerHandler("ShipmentDispatched", async (event) => {
             lines: { create: invoiceLines },
           },
         });
-        // Invoice journal posted inside THIS transaction (DR AR / CR Revenue / CR Output GST).
-        await postCustomerInvoiceJournal({ businessId: event.businessId, tenantId: event.tenantId, invoiceId: newInvoice.id, code: newInvoice.code, total: totalAmount, tx });
-        await tx.outboxEventRecord.create({
+        // AR subledger keyed by the INVOICE id (matches createCustomerInvoice). This replaces the
+        // retired CustomerInvoiceCreated event, whose handler keyed the receivable + a second
+        // AR/Revenue journal by shipmentId — double-posting revenue for shipment invoices.
+        await tx.receivableEntry.create({
           data: {
-            eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            eventType: "CustomerInvoiceCreated",
-            aggregateId: shipmentId,
-            aggregateVersion: 1,
             businessId: event.businessId,
-            tenantId: event.tenantId,
-            occurredAt: new Date(),
-            payload: { invoiceTotal: totalAmount },
-            status: "PENDING",
+            customerId: so.customerId,
+            sourceType: "CUSTOMER_INVOICE",
+            sourceId: newInvoice.id,
+            amount: totalAmount,
+            paidAmount: 0,
+            dueDate: new Date(new Date().setDate(new Date().getDate() + 15)),
+            status: "OPEN",
           },
         });
+        // Exactly ONE invoice journal, inside THIS transaction (DR AR / CR Revenue / CR Output GST).
+        await postCustomerInvoiceJournal({ businessId: event.businessId, tenantId: event.tenantId, invoiceId: newInvoice.id, code: newInvoice.code, total: totalAmount, tx });
       }
     }
 
@@ -524,40 +526,13 @@ registerHandler("SupplierPaymentRegistered", async (event) => {
   });
 });
 
-registerHandler("CustomerInvoiceCreated", async (event) => {
-  const payload = event.payload as any;
-  const { invoiceTotal } = payload;
-  const invoiceId = event.aggregateId;
-
-  const existingReceivable = await db.receivableEntry.findFirst({
-      where: { sourceType: "CUSTOMER_INVOICE", sourceId: invoiceId }
-  });
-
-  if (!existingReceivable) {
-      await db.receivableEntry.create({
-          data: {
-              businessId: event.businessId,
-              sourceType: "CUSTOMER_INVOICE",
-              sourceId: invoiceId,
-              amount: new Prisma.Decimal(invoiceTotal),
-              paidAmount: 0,
-              status: "OPEN"
-          }
-      });
-
-      await FinancialPostingService.postEntry({
-          businessId: event.businessId,
-              tenantId: event.tenantId,
-              description: "Customer Invoice Created",
-          sourceType: "CUSTOMER_INVOICE",
-          sourceId: invoiceId,
-          lines: [
-              { accountCode: "1100", debit: invoiceTotal }, // 1100 Accounts Receivable
-              { accountCode: "4000", credit: invoiceTotal } // 4000 Revenue
-          ]
-      });
-  }
-});
+// CustomerInvoiceCreated handler RETIRED (double-post fix). It posted a SECOND AR/Revenue journal
+// keyed by the event aggregateId (= shipmentId), on top of the invoice journal ShipmentDispatched
+// already posts via postCustomerInvoiceJournal (keyed by invoiceId, WITH GST split) — double-counting
+// AR and revenue for shipment invoices, and mis-keying the receivable by shipmentId. ShipmentDispatched
+// now creates the receivable inline (by invoiceId) and no longer emits this event; the direct invoice
+// path (createCustomerInvoice) never used it. Only emitter was ShipmentDispatched (verified), so no
+// handler is registered — any stray in-flight event is a harmless no-op (processor logs "no handler").
 
 registerHandler("CustomerPaymentRecorded", async (event) => {
   const payload = event.payload as any;
