@@ -18,48 +18,48 @@ registerHandler("GoodsReceiptRequested", async (event) => {
 registerHandler("GoodsReceiptCompleted", async (event) => {
   const payload = event.payload as any;
   const { poId, acceptedLines } = payload;
-
-  // Idempotency guard: if this goods receipt has already produced a supplier bill, the event has
-  // already been processed — a replay must NOT re-update PO-line received quantities, recompute WAC,
-  // or create another bill. Making the whole handler a no-op on replay keeps it retry-safe.
   const grSourceId = payload.grId || event.aggregateId;
-  const alreadyProcessed = await db.supplierBill.findFirst({ where: { businessId: event.businessId, sourceType: "GOODS_RECEIPT", sourceId: grSourceId } });
-  if (alreadyProcessed) return;
 
-  // Update PO Lines
-  let totalAccepted = 0;
-  for (const line of acceptedLines) {
-    if (line.poLineId && line.acceptedQty > 0) {
-      const poLine = await db.purchaseOrderLine.findUnique({ where: { id: line.poLineId } });
-      if (poLine) {
-        await db.purchaseOrderLine.update({
-          where: { id: line.poLineId },
-          data: { receivedQty: poLine.receivedQty + line.acceptedQty }
-        });
+  // Atomicity + idempotency: the entire receipt → PO-line → WAC → supplier-bill → PO-status
+  // transition commits or rolls back as ONE unit. A failure anywhere leaves NO partial writes, so a
+  // retry re-runs from a clean state and yields the same final state as a single success. Combined
+  // with the guard below (a supplier bill already exists for this GR ⇒ full no-op) this gives
+  // exactly-once effect on replay: PO receivedQty, WAC and the bill are never applied twice.
+  await db.$transaction(async (tx) => {
+    const alreadyProcessed = await tx.supplierBill.findFirst({ where: { businessId: event.businessId, sourceType: "GOODS_RECEIPT", sourceId: grSourceId } });
+    if (alreadyProcessed) return;
+
+    // Update PO Lines
+    let totalAccepted = 0;
+    for (const line of acceptedLines) {
+      if (line.poLineId && line.acceptedQty > 0) {
+        const poLine = await tx.purchaseOrderLine.findUnique({ where: { id: line.poLineId } });
+        if (poLine) {
+          await tx.purchaseOrderLine.update({
+            where: { id: line.poLineId },
+            data: { receivedQty: poLine.receivedQty + line.acceptedQty }
+          });
+        }
+        totalAccepted += line.acceptedQty;
       }
-      totalAccepted += line.acceptedQty;
     }
-  }
 
-  // Create SupplierBill (Idempotent)
-  if (poId) {
-    const po = await db.purchaseOrder.findUnique({ where: { id: poId }, include: { lines: true } });
-    if (po) {
-      const sourceId = payload.grId || event.aggregateId;
-      const existingBill = await db.supplierBill.findFirst({ where: { sourceType: "GOODS_RECEIPT", sourceId } });
-      if (!existingBill) {
+    // Create SupplierBill (we already returned above if one exists for this GR)
+    if (poId) {
+      const po = await tx.purchaseOrder.findUnique({ where: { id: poId }, include: { lines: true } });
+      if (po) {
+        const sourceId = grSourceId;
         let totalAmount = 0;
         const billLines = [];
         // Received qty + extended cost per variant across ALL accepted lines; blended into WAC once
         // after this loop (a single GR may carry multiple lines for the same variant).
         const receivedByVariant = new Map<string, { qty: number; value: number }>();
+        const inventoryAccount = await tx.ledgerAccount.findFirst({ where: { businessId: event.businessId, accountCode: "1200" } });
         for (const line of acceptedLines) {
           const poLine = po.lines.find(l => l.id === line.poLineId);
           if (poLine) {
             const lineTotal = line.acceptedQty * poLine.unitPrice;
             totalAmount += lineTotal;
-            const inventoryAccount = await db.ledgerAccount.findFirst({ where: { businessId: event.businessId, accountCode: "1200" } });
-            
             billLines.push({
               description: "Received Goods",
               quantity: line.acceptedQty,
@@ -79,13 +79,13 @@ registerHandler("GoodsReceiptCompleted", async (event) => {
             }
           }
         }
-        
+
         // WAC per variant — aggregate ALL accepted lines for the same variant FIRST, then blend
         // once. Doing it per line drifts the average when one receipt has multiple lines for the
         // same variant (each line would treat the others' just-received qty as pre-existing stock at
         // the interim WAC). onHand already includes this receipt, so prevQty = totalOnHand − received.
         for (const [variantId, recv] of receivedByVariant) {
-          const projs = await db.inventoryVariantProjection.findMany({
+          const projs = await tx.inventoryVariantProjection.findMany({
             where: { businessId: event.businessId, variantId }
           });
           if (projs.length === 0) continue;
@@ -99,7 +99,7 @@ registerHandler("GoodsReceiptCompleted", async (event) => {
           const oldWac = totalOnHand > 0 ? totalValue / totalOnHand : blendedUnitCost;
           const prevQty = Math.max(0, totalOnHand - recv.qty);
           const newWac = weightedAverageCost(prevQty, oldWac, recv.qty, blendedUnitCost);
-          await db.inventoryVariantProjection.updateMany({
+          await tx.inventoryVariantProjection.updateMany({
             where: { businessId: event.businessId, variantId },
             data: { averageCost: new Prisma.Decimal(newWac) }
           });
@@ -107,7 +107,7 @@ registerHandler("GoodsReceiptCompleted", async (event) => {
 
         if (totalAmount > 0) {
           const suffix = Date.now().toString().slice(-6);
-          await db.supplierBill.create({
+          await tx.supplierBill.create({
             data: {
               businessId: event.businessId,
               code: "BIL-" + suffix,
@@ -122,8 +122,8 @@ registerHandler("GoodsReceiptCompleted", async (event) => {
               }
             }
           });
-          
-          await db.outboxEventRecord.create({
+
+          await tx.outboxEventRecord.create({
             data: {
               eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
               eventType: "SupplierBillCreated",
@@ -139,21 +139,21 @@ registerHandler("GoodsReceiptCompleted", async (event) => {
         }
       }
     }
-  }
 
-  // Update PO Status
-  if (totalAccepted > 0 && poId) {
-    const allPoLines = await db.purchaseOrderLine.findMany({ where: { poId } });
-    const fullyReceived = allPoLines.every((l: any) => l.receivedQty >= l.quantity);
-    
-    await db.purchaseOrder.update({
-      where: { id: poId },
-      data: {
-        status: fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED",
-        updatedBy: "SYSTEM_INV_EVENT",
-      }
-    });
-  }
+    // Update PO Status
+    if (totalAccepted > 0 && poId) {
+      const allPoLines = await tx.purchaseOrderLine.findMany({ where: { poId } });
+      const fullyReceived = allPoLines.every((l: any) => l.receivedQty >= l.quantity);
+
+      await tx.purchaseOrder.update({
+        where: { id: poId },
+        data: {
+          status: fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED",
+          updatedBy: "SYSTEM_INV_EVENT",
+        }
+      });
+    }
+  });
 });
 
 registerHandler("InventoryTransferred", async (event) => {

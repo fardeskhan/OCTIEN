@@ -19,6 +19,19 @@ export class FinancialPostingService {
     lines: { accountCode: string; debit?: number; credit?: number; costCenterId?: string }[];
   }) {
     return db.$transaction(async (tx) => {
+      // Idempotency: an event-sourced posting is uniquely identified by (businessId, sourceType,
+      // sourceId). If a journal already exists for it, return that instead of creating a duplicate —
+      // this makes every postEntry caller safe to replay (e.g. a redelivered ShipmentDispatched must
+      // not double-post COGS; a replayed payment must not double-post cash). Journals without a
+      // sourceId (manual/adjustment entries) are exempt — they may legitimately repeat.
+      if (params.sourceId) {
+        const existingEntry = await tx.journalEntry.findFirst({
+          where: { businessId: params.businessId, sourceType: params.sourceType as any, sourceId: params.sourceId },
+          include: { lines: true },
+        });
+        if (existingEntry) return existingEntry;
+      }
+
       const period = await tx.accountingPeriod.findFirst({
         where: {
           businessId: params.businessId,
