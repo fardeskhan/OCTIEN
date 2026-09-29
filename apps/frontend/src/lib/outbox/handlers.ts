@@ -357,7 +357,12 @@ registerHandler("ShipmentDispatched", async (event) => {
         totalCogs += (line.shippedQty * unitCost);
       }
 
-      if (totalCogs > 0) {
+      // Idempotency: COGS for a shipment is uniquely keyed by (SHIPMENT_DISPATCH, shipmentId). A
+      // replayed/concurrent ShipmentDispatched must not post COGS twice, so skip if it already exists.
+      const existingCogs = await db.journalEntry.findFirst({
+        where: { businessId: event.businessId, sourceType: "SHIPMENT_DISPATCH", sourceId: shipmentId }
+      });
+      if (totalCogs > 0 && !existingCogs) {
           await FinancialPostingService.postEntry({
               businessId: event.businessId,
               tenantId: event.tenantId,
