@@ -473,37 +473,42 @@ registerHandler("ShipmentDelivered", async (event) => {
 registerHandler("SupplierBillApproved", async (event) => {
   const payload = event.payload as any;
   const { billId, amount } = payload;
-  
-  // Create PayableEntry
-  const existingPayable = await db.payableEntry.findFirst({
-      where: { sourceType: "SUPPLIER_BILL", sourceId: billId }
+
+  // Atomic + idempotent: the PayableEntry (AP subledger) and its GL journal (DR 1200 Inventory /
+  // CR 2000 AP) commit or roll back together, so AP and the ledger never diverge on a partial
+  // failure. The guard (payable already exists for this bill) makes a replay a no-op. Previously
+  // these were two separate writes: a crash between them left a payable with no GL, and the guard
+  // then blocked recovery.
+  await db.$transaction(async (tx) => {
+    const existingPayable = await tx.payableEntry.findFirst({
+      where: { businessId: event.businessId, sourceType: "SUPPLIER_BILL", sourceId: billId },
+    });
+    if (existingPayable) return;
+
+    await tx.payableEntry.create({
+      data: {
+        businessId: event.businessId,
+        sourceType: "SUPPLIER_BILL",
+        sourceId: billId,
+        amount: new Prisma.Decimal(amount),
+        paidAmount: 0,
+        status: "OPEN",
+      },
+    });
+
+    await FinancialPostingService.postEntry({
+      businessId: event.businessId,
+      tenantId: event.tenantId,
+      tx,
+      description: "Supplier Bill Approved",
+      sourceType: "SUPPLIER_BILL",
+      sourceId: billId,
+      lines: [
+        { accountCode: "1200", debit: amount }, // 1200 Inventory Asset
+        { accountCode: "2000", credit: amount }, // 2000 Accounts Payable
+      ],
+    });
   });
-
-  if (!existingPayable) {
-      await db.payableEntry.create({
-          data: {
-              businessId: event.businessId,
-              sourceType: "SUPPLIER_BILL",
-              sourceId: billId,
-              amount: new Prisma.Decimal(amount),
-              paidAmount: 0,
-              status: "OPEN"
-          }
-      });
-
-      // Post Journal Entry: DR Inventory Asset, CR Accounts Payable
-      await FinancialPostingService.postEntry({
-          businessId: event.businessId,
-              tenantId: event.tenantId,
-              description: "Supplier Bill Approved",
-          sourceType: "SUPPLIER_BILL",
-          sourceId: billId,
-          lines: [
-              { accountCode: "1200", debit: amount }, // 1200 Inventory Asset
-              { accountCode: "2000", credit: amount } // 2000 Accounts Payable
-          ]
-      });
-  }
 });
 
 registerHandler("SupplierPaymentRegistered", async (event) => {
