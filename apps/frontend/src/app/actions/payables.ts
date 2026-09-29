@@ -38,7 +38,9 @@ export async function registerSupplierPayment(data: { amount: number; currencyId
 
     // 2. Process Allocations
     for (const alloc of data.allocations) {
-        const payable = await tx.payableEntry.findUnique({ where: { id: alloc.payableEntryId } });
+        // Scope to the caller's business: without this a caller could pass another tenant's
+        // payableEntryId and settle/corrupt that tenant's AP (cross-tenant IDOR).
+        const payable = await tx.payableEntry.findFirst({ where: { id: alloc.payableEntryId, businessId } });
         if (!payable) throw new Error(`Payable ${alloc.payableEntryId} not found`);
 
         const remaining = payable.amount.toNumber() - payable.paidAmount.toNumber();
@@ -60,7 +62,7 @@ export async function registerSupplierPayment(data: { amount: number; currencyId
 
         // Also update the associated SupplierBill if it exists (legacy sync)
         if (payable.sourceType === "SUPPLIER_BILL") {
-            const bill = await tx.supplierBill.findUnique({ where: { id: payable.sourceId } });
+            const bill = await tx.supplierBill.findFirst({ where: { id: payable.sourceId, businessId } });
             if (bill) {
                 const billNewPaid = bill.paidAmount.toNumber() + alloc.amount;
                 const billNewRemaining = bill.totalAmount.toNumber() - billNewPaid;

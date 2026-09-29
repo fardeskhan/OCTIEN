@@ -70,6 +70,12 @@ export async function assignShipmentsToStop(stopId: string, shipmentIds: string[
   await requirePermission("logistics.write");
 
   return db.$transaction(async (tx) => {
+    // Verify the target stop belongs to the caller's business BEFORE attaching anything to it or
+    // touching its run — otherwise a caller could pass another tenant's stopId and both attach their
+    // shipments to it and flip that tenant's delivery run status (cross-tenant IDOR).
+    const stop = await tx.deliveryRunStop.findFirst({ where: { id: stopId, businessId } });
+    if (!stop) throw new Error("Delivery run stop not found");
+
     for (const shipmentId of shipmentIds) {
       const shipment = await tx.shipment.findUnique({ where: { id: shipmentId, businessId } });
       if (shipment && shipment.status !== "DELIVERED" && shipment.status !== "PARTIALLY_DELIVERED") {
@@ -79,15 +85,12 @@ export async function assignShipmentsToStop(stopId: string, shipmentIds: string[
         });
       }
     }
-    
-    // Auto-update run status to LOADING
-    const stop = await tx.deliveryRunStop.findUnique({ where: { id: stopId } });
-    if (stop) {
-        await tx.deliveryRun.update({
-            where: { id: stop.deliveryRunId },
-            data: { status: "LOADING" }
-        });
-    }
+
+    // Auto-update run status to LOADING (stop is confirmed owned by this business above).
+    await tx.deliveryRun.update({
+      where: { id: stop.deliveryRunId },
+      data: { status: "LOADING" }
+    });
   });
 }
 
