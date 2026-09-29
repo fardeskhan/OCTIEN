@@ -50,6 +50,9 @@ registerHandler("GoodsReceiptCompleted", async (event) => {
       if (!existingBill) {
         let totalAmount = 0;
         const billLines = [];
+        // Received qty + extended cost per variant across ALL accepted lines; blended into WAC once
+        // after this loop (a single GR may carry multiple lines for the same variant).
+        const receivedByVariant = new Map<string, { qty: number; value: number }>();
         for (const line of acceptedLines) {
           const poLine = po.lines.find(l => l.id === line.poLineId);
           if (poLine) {
@@ -65,42 +68,43 @@ registerHandler("GoodsReceiptCompleted", async (event) => {
               accountId: inventoryAccount?.id || po.supplierId // fallback for type safety
             });
 
-            // WAC (Weighted Average Cost) Calculation
-            if (line.variantId) {
-              // Find or create global variant projection for WAC (we need it per business/variant)
-              // Assuming we use a single global average cost per variant across warehouses for MVP
-              const projs = await db.inventoryVariantProjection.findMany({
-                where: { businessId: event.businessId, variantId: line.variantId }
-              });
-              
-              if (projs.length > 0) {
-                let totalOnHand = 0;
-                let totalValue = 0;
-
-                // Compute total current value. NOTE: onHand ALREADY includes this receipt (the
-                // goods-receipt action increments the projection before this event drains), so the
-                // pre-receipt quantity is `totalOnHand − acceptedQty`. The previous code added the
-                // received qty a SECOND time (newTotalQty = totalOnHand + acceptedQty), which
-                // double-counted it in the denominator and drifted the average cost downward.
-                for (const p of projs) {
-                  totalOnHand += p.onHandQuantity;
-                  totalValue += p.onHandQuantity * p.averageCost.toNumber();
-                }
-
-                const oldWac = totalOnHand > 0 ? totalValue / totalOnHand : poLine.unitPrice;
-                const prevQty = Math.max(0, totalOnHand - line.acceptedQty);
-                const newWac = weightedAverageCost(prevQty, oldWac, line.acceptedQty, poLine.unitPrice);
-
-                // Update all warehouse projections for this variant with the new average cost.
-                await db.inventoryVariantProjection.updateMany({
-                  where: { businessId: event.businessId, variantId: line.variantId },
-                  data: { averageCost: new Prisma.Decimal(newWac) }
-                });
-              }
+            // WAC: accumulate received qty + extended cost per variant here; the actual blend happens
+            // ONCE per variant after this loop (see below) so multiple lines for the same variant in
+            // one GR are averaged correctly rather than compounding per line.
+            if (line.variantId && line.acceptedQty > 0) {
+              const agg = receivedByVariant.get(line.variantId) ?? { qty: 0, value: 0 };
+              agg.qty += line.acceptedQty;
+              agg.value += line.acceptedQty * poLine.unitPrice;
+              receivedByVariant.set(line.variantId, agg);
             }
           }
         }
         
+        // WAC per variant — aggregate ALL accepted lines for the same variant FIRST, then blend
+        // once. Doing it per line drifts the average when one receipt has multiple lines for the
+        // same variant (each line would treat the others' just-received qty as pre-existing stock at
+        // the interim WAC). onHand already includes this receipt, so prevQty = totalOnHand − received.
+        for (const [variantId, recv] of receivedByVariant) {
+          const projs = await db.inventoryVariantProjection.findMany({
+            where: { businessId: event.businessId, variantId }
+          });
+          if (projs.length === 0) continue;
+          let totalOnHand = 0;
+          let totalValue = 0;
+          for (const p of projs) {
+            totalOnHand += p.onHandQuantity;
+            totalValue += p.onHandQuantity * p.averageCost.toNumber();
+          }
+          const blendedUnitCost = recv.qty > 0 ? recv.value / recv.qty : 0;
+          const oldWac = totalOnHand > 0 ? totalValue / totalOnHand : blendedUnitCost;
+          const prevQty = Math.max(0, totalOnHand - recv.qty);
+          const newWac = weightedAverageCost(prevQty, oldWac, recv.qty, blendedUnitCost);
+          await db.inventoryVariantProjection.updateMany({
+            where: { businessId: event.businessId, variantId },
+            data: { averageCost: new Prisma.Decimal(newWac) }
+          });
+        }
+
         if (totalAmount > 0) {
           const suffix = Date.now().toString().slice(-6);
           await db.supplierBill.create({
