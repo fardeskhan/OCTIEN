@@ -3,13 +3,17 @@
 import { db } from "@/lib/db";
 import { withActiveRecords } from "@/lib/db-helpers";
 
-async function getBusinessId() {
-  const { getActiveBusinessId } = await import("@/lib/server-auth");
+async function getBusinessId(permission?: string) {
+  const { getActiveBusinessId, requirePermission } = await import("@/lib/server-auth");
+  // Server actions are directly invocable, so each must authorize itself rather than rely on the
+  // calling page's guard — otherwise a low-privilege member could read these reports / trigger the
+  // recalc by invoking the action directly.
+  if (permission) await requirePermission(permission);
   return getActiveBusinessId();
 }
 
 export async function getExecutiveDashboard() {
-  const businessId = await getBusinessId();
+  const businessId = await getBusinessId("reporting.read");
   const projection = await db.executiveDashboardProjection.findUnique({
     where: { businessId }
   });
@@ -30,7 +34,7 @@ export async function getExecutiveDashboard() {
 }
 
 export async function getInventoryReport() {
-  const businessId = await getBusinessId();
+  const businessId = await getBusinessId("inventory.read");
   // Fetch detailed inventory reporting projection with related warehouse and variant info
   const records = await db.inventoryReportProjection.findMany({
     where: { businessId },
@@ -61,7 +65,7 @@ export async function getInventoryReport() {
 }
 
 export async function getProcurementReport() {
-  const businessId = await getBusinessId();
+  const businessId = await getBusinessId("procurement.read");
   const records = await db.procurementReportProjection.findMany({
     where: { businessId },
     orderBy: { totalSpendYTD: "desc" }
@@ -82,7 +86,7 @@ export async function getProcurementReport() {
 
 // Temporary recalculation trigger for V1, mimicking an event listener
 export async function recalculateExecutiveDashboard() {
-  const businessId = await getBusinessId();
+  const businessId = await getBusinessId("reporting.read");
 
   // Calculate total inventory value
   const inventoryAgg = await db.inventoryReportProjection.aggregate({

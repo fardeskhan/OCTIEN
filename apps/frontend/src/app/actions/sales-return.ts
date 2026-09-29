@@ -4,8 +4,11 @@ import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { v4 as uuidv4 } from "uuid";
 
-async function getBusinessId() {
-  const { getActiveBusinessId } = await import("@/lib/server-auth");
+async function getBusinessId(permission?: string) {
+  const { getActiveBusinessId, requirePermission } = await import("@/lib/server-auth");
+  // Server actions are directly invocable — each authorizes itself rather than trusting the caller.
+  // Sales returns move inventory and AR, so they must not run for an unauthorized member.
+  if (permission) await requirePermission(permission);
   return getActiveBusinessId();
 }
 
@@ -19,7 +22,7 @@ export async function requestSalesReturn(data: {
   warehouseId: string; // The warehouse where the items will be returned
   lines: { soLineId: string; variantId: string; quantity: number; reason: string }[];
 }) {
-  const businessId = await getBusinessId();
+  const businessId = await getBusinessId("sales.write");
   const order = await db.salesOrder.findUnique({
     where: { id: data.soId, businessId }
   });
@@ -77,7 +80,7 @@ export async function requestSalesReturn(data: {
 }
 
 export async function approveSalesReturn(id: string) {
-  const businessId = await getBusinessId();
+  const businessId = await getBusinessId("sales.write");
   const salesReturn = await db.salesReturn.update({
     where: { id, businessId },
     data: { status: "APPROVED" }
@@ -89,7 +92,7 @@ export async function approveSalesReturn(id: string) {
 export async function receiveSalesReturn(id: string) {
   // In reality, this would be an event coming back from INVENTORY saying "InventoryReturnAccepted"
   // For V1 MVP without full background worker, we simulate the manual step here.
-  const businessId = await getBusinessId();
+  const businessId = await getBusinessId("sales.write");
   const salesReturn = await db.salesReturn.update({
     where: { id, businessId },
     data: { status: "RECEIVED" }
@@ -99,7 +102,7 @@ export async function receiveSalesReturn(id: string) {
 }
 
 export async function getSalesReturns() {
-  const businessId = await getBusinessId();
+  const businessId = await getBusinessId("sales.read");
   return db.salesReturn.findMany({
     where: { businessId },
     include: {
