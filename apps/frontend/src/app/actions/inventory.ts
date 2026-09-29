@@ -36,15 +36,27 @@ async function ensureInventoryRecord(tx: any, businessId: string, tenantId: stri
  * Updates the read model projection for a specific variant in a specific warehouse.
  */
 async function updateVariantProjection(tx: any, businessId: string, tenantId: string, variantId: string, warehouseId: string) {
-  // Aggregate all stock movements for this inventory record to calculate On Hand
-  const inventoryId = `${businessId}-${variantId}-${warehouseId}`;
-  
+  // Aggregate all stock movements for this variant+warehouse to calculate On Hand.
+  // IMPORTANT: filter by the (businessId, variantId, warehouseId) columns the movement carries, NOT
+  // a synthetic `${businessId}-${variantId}-${warehouseId}` inventoryId. Seeded InventoryRecords use
+  // ids like `INV-<slug>-<n>`, so their movements never matched the synthetic id — the aggregate
+  // returned 0 and the first live receipt wiped on-hand to ~0 and reset WAC to the receipt price.
+  // Reservations/stock-out handlers were already fixed to resolve the real record; this is the same
+  // class of id-scheme bug in the projection rebuild.
   const movements = await tx.stockMovementRecord.aggregate({
-    where: { inventoryId },
+    where: { businessId, variantId, warehouseId },
     _sum: { quantityValue: true }
   });
 
   const onHand = movements._sum.quantityValue || 0;
+
+  // Resolve the REAL inventory record id so reservations (keyed by inventoryId FK) aggregate
+  // correctly for seeded records too.
+  const rec = await tx.inventoryRecord.findUnique({
+    where: { businessId_variantId_warehouseId: { businessId, variantId, warehouseId } },
+    select: { id: true }
+  });
+  const inventoryId = rec?.id ?? `${businessId}-${variantId}-${warehouseId}`;
 
   // Find all ACTIVE reservations for this inventory record
   const reservations = await tx.reservationRecord.aggregate({
