@@ -17,8 +17,12 @@ export class FinancialPostingService {
     approvedAt?: Date;
     correlationId?: string; // Optional for legacy support, but required for RC5.9+ workflows
     lines: { accountCode: string; debit?: number; credit?: number; costCenterId?: string }[];
+    // Optional caller transaction. When provided, the journal is posted inside the caller's
+    // transaction so a composite operation (e.g. record payment + cash + GL) commits or rolls back
+    // as ONE unit. When omitted, postEntry opens its own transaction as before.
+    tx?: Prisma.TransactionClient;
   }) {
-    return db.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
       // NOTE: postEntry does NOT dedupe by (sourceType, sourceId) — that key is NOT unique per posting
       // across all callers. Customer-payment journals are keyed by invoiceId (a single invoice can
       // have many partial-payment journals), so a blanket dedupe here would drop legitimate payments.
@@ -132,6 +136,7 @@ export class FinancialPostingService {
       });
 
       return entry;
-    });
+    };
+    return params.tx ? run(params.tx) : db.$transaction(run);
   }
 }
