@@ -60,51 +60,60 @@ export async function createPurchaseOrder(formData: FormData) {
   redirect(`/operations/procurement/orders/${po.id}`);
 }
 
+// Legal USER-driven PO transitions (only these are invoked from the UI). The receive transitions
+// (-> PARTIALLY_RECEIVED / RECEIVED) are performed by the GoodsReceiptCompleted handler, NOT via this
+// action, and are intentionally rejected for user calls. CANCELLED/CLOSED have no wired transition in
+// the current codebase, so no transition into them is permitted here (documented lifecycle gap).
+const LEGAL_PO_TRANSITIONS: Record<string, POStatus[]> = {
+  DRAFT: ["APPROVED"],
+  APPROVED: ["ORDERED"],
+};
+
 export async function updatePurchaseOrderStatus(id: string, status: POStatus) {
   const { currentBusinessId, session, tenantId } = await requireBusinessContext();
 
-  if (status === "APPROVED") {
-    // Insert into Outbox
-    await db.outboxEventRecord.create({
-      data: {
-        eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        eventType: "PurchaseOrderApproved",
-        aggregateId: id,
-        aggregateVersion: 1,
-        businessId: currentBusinessId,
-        tenantId: tenantId || "SYSTEM",
-        occurredAt: new Date(),
-        payload: { poId: id, status: "APPROVED" },
-        status: "PENDING"
-      }
-    });
+  // PROC-2: authorize FIRST — before any read, write or side effect.
+  await requirePermission(status === "APPROVED" ? "purchase_order.approve" : "purchase_order.update");
 
-    await requirePermission("purchase_order.approve");
-  } else {
-    await requirePermission("purchase_order.update");
-  }
+  // Ownership check, state-machine validation, the mutation and the PurchaseOrderApproved event all
+  // run in ONE transaction. No outbox event is written until authorization, ownership AND a legal
+  // transition are established. The state machine also gives replay protection (re-approving an
+  // already-APPROVED PO is an illegal APPROVED->APPROVED transition, so no duplicate event).
+  await db.$transaction(async (tx) => {
+    const po = await tx.purchaseOrder.findFirst({ where: { id, businessId: currentBusinessId } });
+    if (!po) throw new Error("PO not found");
 
-  const po = await db.purchaseOrder.findUnique({ where: { id, businessId: currentBusinessId } });
-  if (!po) throw new Error("PO not found");
+    const allowed = LEGAL_PO_TRANSITIONS[po.status] ?? [];
+    if (!allowed.includes(status)) {
+      throw new Error(`Illegal purchase-order transition: ${po.status} -> ${status}`);
+    }
 
-  const updateData: any = {
-    status,
-    updatedBy: session.user.id,
-  };
+    const updateData: any = { status, updatedBy: session.user.id };
+    if (status === "APPROVED") {
+      updateData.approvedBy = session.user.id;
+      updateData.approvedAt = new Date();
+    }
+    if (status === "ORDERED") {
+      updateData.orderedAt = new Date();
+    }
 
-  if (status === "APPROVED") {
-    updateData.approvedBy = session.user.id;
-    updateData.approvedAt = new Date();
-  }
+    await tx.purchaseOrder.update({ where: { id }, data: updateData });
 
-  if (status === "ORDERED" && po.status !== "ORDERED") {
-    updateData.orderedAt = new Date();
-    // In future: emit PurchaseOrderOrdered integration event
-  }
-
-  await db.purchaseOrder.update({
-    where: { id },
-    data: updateData
+    if (status === "APPROVED") {
+      await tx.outboxEventRecord.create({
+        data: {
+          eventId: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          eventType: "PurchaseOrderApproved",
+          aggregateId: id,
+          aggregateVersion: 1,
+          businessId: currentBusinessId,
+          tenantId: tenantId || "SYSTEM",
+          occurredAt: new Date(),
+          payload: { poId: id, status: "APPROVED" },
+          status: "PENDING",
+        },
+      });
+    }
   });
 
   revalidatePath(`/operations/procurement/orders/${id}`);
