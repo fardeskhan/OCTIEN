@@ -1,11 +1,20 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { requireBusinessContext, requirePermission } from "@/lib/server-auth";
 import { logAudit } from "@/lib/audit";
 import { drainOutbox } from "@/lib/outbox";
 import { revalidatePath } from "next/cache";
 import { v4 as uuidv4 } from "uuid";
+
+/** True ONLY for a unique-violation on the sales_orders (businessId, quotationId) conversion index. */
+function isQuotationConversionConflict(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") return false;
+  const t = (e.meta as { target?: unknown } | undefined)?.target;
+  const s = Array.isArray(t) ? t.join(",") : typeof t === "string" ? t : "";
+  return s.toLowerCase().includes("quotation");
+}
 
 async function generateSalesOrderCode(businessId: string): Promise<string> {
   const count = await db.salesOrder.count({ where: { businessId } });
@@ -15,6 +24,11 @@ async function generateSalesOrderCode(businessId: string): Promise<string> {
 export async function createSalesOrderFromQuote(quoteId: string) {
   const { currentBusinessId: businessId } = await requireBusinessContext();
   await requirePermission("sales.write");
+
+  // Idempotent: if this quotation already produced a sales order, return it (deterministic
+  // already-converted response) instead of creating a second SO.
+  const alreadyConverted = await db.salesOrder.findFirst({ where: { businessId, quotationId: quoteId } });
+  if (alreadyConverted) return alreadyConverted;
 
   const quote = await db.quotation.findFirst({
     where: { id: quoteId, businessId },
@@ -26,29 +40,40 @@ export async function createSalesOrderFromQuote(quoteId: string) {
 
   const code = await generateSalesOrderCode(businessId);
 
-  const order = await db.salesOrder.create({
-    data: {
-      businessId,
-      code,
-      customerId: quote.customerId,
-      totalAmount: quote.totalAmount,
-      currencyId: quote.currencyId,
-      status: "DRAFT",
-      lines: {
-        create: quote.lines.map(line => ({
-          variantId: line.variantId,
-          quantity: line.quantity,
-          unitPrice: line.unitPrice,
-          totalPrice: line.totalPrice
-        }))
+  try {
+    const order = await db.salesOrder.create({
+      data: {
+        businessId,
+        code,
+        customerId: quote.customerId,
+        totalAmount: quote.totalAmount,
+        currencyId: quote.currencyId,
+        status: "DRAFT",
+        quotationId: quote.id, // conversion marker — unique per (businessId, quotationId) at the DB
+        lines: {
+          create: quote.lines.map(line => ({
+            variantId: line.variantId,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            totalPrice: line.totalPrice
+          }))
+        }
       }
-    }
-  });
+    });
 
-  await logAudit({ action: "create", resource: "sales_order", resourceId: order.id, metadata: { code, fromQuote: quote.code } });
-  revalidatePath("/sales/orders");
-  revalidatePath("/sales/quotations");
-  return order;
+    await logAudit({ action: "create", resource: "sales_order", resourceId: order.id, metadata: { code, fromQuote: quote.code } });
+    revalidatePath("/sales/orders");
+    revalidatePath("/sales/quotations");
+    return order;
+  } catch (e) {
+    // Concurrent conversion: the partial unique index rejected the second insert. Return the SO that
+    // won the race rather than failing or creating a duplicate.
+    if (isQuotationConversionConflict(e)) {
+      const existing = await db.salesOrder.findFirst({ where: { businessId, quotationId: quoteId } });
+      if (existing) return existing;
+    }
+    throw e;
+  }
 }
 
 export async function approveSalesOrder(id: string) {

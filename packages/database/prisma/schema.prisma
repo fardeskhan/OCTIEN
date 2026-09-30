@@ -817,6 +817,11 @@ model SalesOrder {
   status      SalesOrderStatus @default(DRAFT)
   totalAmount Float            @default(0.0)
   currencyId  String
+  // Source quotation this order was converted from (nullable — orders may be created directly). A
+  // quotation converts to AT MOST ONE sales order, enforced by a PARTIAL unique index
+  // UNIQUE(businessId, quotationId) WHERE quotationId IS NOT NULL, applied via hand-written SQL
+  // (Prisma cannot express a filtered index). Nullable so existing/direct orders remain valid.
+  quotationId String?
   createdBy   String?
   updatedBy   String?
   createdAt   DateTime         @default(now())
