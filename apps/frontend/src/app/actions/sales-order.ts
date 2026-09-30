@@ -140,39 +140,42 @@ export async function fulfillSalesOrder(id: string) {
     throw new Error("Only a confirmed order can be fulfilled");
   }
 
-  // Atomic conditional transition (concurrency-safe).
-  const res = await db.salesOrder.updateMany({ where: { id, businessId, status: { in: ["CONFIRMED", "PARTIALLY_FULFILLED"] } }, data: { status: "FULFILLED" } });
-  if (res.count === 0) throw new Error("Order is not in a fulfillable state");
-
-  // Outbox event for fulfillment
   const tenantMembership = await db.membership.findFirst({
     where: { businessId },
     include: { business: true }
   });
   const tenantId = tenantMembership?.business.tenantId || "UNKNOWN";
 
-  await db.outboxEventRecord.create({
-    data: {
-      eventId: uuidv4(),
-      eventType: "SalesOrderFulfilled",
-      aggregateId: order.id,
-      aggregateVersion: 1,
-      businessId,
-      tenantId,
-      occurredAt: new Date(),
-      // Plain object into the Json column (see confirm note above).
-      payload: {
-        soId: order.id,
-        lines: order.lines.map(l => ({
-          variantId: l.variantId,
-          quantity: l.quantity, // Assume full fulfillment for V1 MVP
-          id: l.id
-        }))
-      },
-      status: "PENDING"
-    }
+  // Atomic: the transition to FULFILLED and the SalesOrderFulfilled event commit together. The
+  // conditional updateMany keeps it concurrency/replay safe.
+  await db.$transaction(async (tx) => {
+    const res = await tx.salesOrder.updateMany({ where: { id, businessId, status: { in: ["CONFIRMED", "PARTIALLY_FULFILLED"] } }, data: { status: "FULFILLED" } });
+    if (res.count === 0) throw new Error("Order is not in a fulfillable state");
+
+    await tx.outboxEventRecord.create({
+      data: {
+        eventId: uuidv4(),
+        eventType: "SalesOrderFulfilled",
+        aggregateId: order.id,
+        aggregateVersion: 1,
+        businessId,
+        tenantId,
+        occurredAt: new Date(),
+        // Plain object into the Json column (see confirm note above).
+        payload: {
+          soId: order.id,
+          lines: order.lines.map(l => ({
+            variantId: l.variantId,
+            quantity: l.quantity, // Assume full fulfillment for V1 MVP
+            id: l.id
+          }))
+        },
+        status: "PENDING"
+      }
+    });
   });
 
+  // Drain OUTSIDE the transaction (independently idempotent).
   await drainOutbox();
 
   await logAudit({ action: "fulfill", resource: "sales_order", resourceId: order.id, metadata: { code: order.code } });
