@@ -81,44 +81,42 @@ export async function confirmSalesOrder(id: string) {
   if (!order) throw new Error("Order not found");
   if (order.status !== "APPROVED") throw new Error("Only an APPROVED order can be confirmed");
 
-  // Atomic conditional transition (concurrency-safe): succeeds only if still APPROVED, so two
-  // concurrent confirms cannot both proceed to emit a reservation event.
-  const res = await db.salesOrder.updateMany({ where: { id, businessId, status: "APPROVED" }, data: { status: "CONFIRMED" } });
-  if (res.count === 0) throw new Error("Order is no longer in APPROVED state");
-
-  // Outbox event to trigger inventory reservation
   const tenantMembership = await db.membership.findFirst({
     where: { businessId },
     include: { business: true }
   });
   const tenantId = tenantMembership?.business.tenantId || "UNKNOWN";
 
-  await db.outboxEventRecord.create({
-    data: {
-      eventId: uuidv4(),
-      eventType: "SalesOrderConfirmed",
-      aggregateId: order.id,
-      aggregateVersion: 1,
-      businessId,
-      tenantId,
-      occurredAt: new Date(),
-      // NOTE: payload is a Json column — store a plain object (NOT JSON.stringify, which would
-      // double-encode into a string and make handler reads undefined). Keys must match the
-      // handler: `soId` + line `id` (see lib/outbox/handlers.ts SalesOrderConfirmed → reserve).
-      payload: {
-        soId: order.id,
-        lines: order.lines.map(l => ({
-          variantId: l.variantId,
-          quantity: l.quantity,
-          id: l.id
-        }))
-      },
-      status: "PENDING"
-    }
+  // Atomic: the APPROVED->CONFIRMED transition and the SalesOrderConfirmed event commit together, so
+  // a CONFIRMED order always carries its reservation event (no CONFIRMED-without-event on failure).
+  // The conditional updateMany keeps it concurrency/replay safe (only one of two concurrent confirms
+  // matches APPROVED).
+  await db.$transaction(async (tx) => {
+    const res = await tx.salesOrder.updateMany({ where: { id, businessId, status: "APPROVED" }, data: { status: "CONFIRMED" } });
+    if (res.count === 0) throw new Error("Order is no longer in APPROVED state");
+
+    await tx.outboxEventRecord.create({
+      data: {
+        eventId: uuidv4(),
+        eventType: "SalesOrderConfirmed",
+        aggregateId: order.id,
+        aggregateVersion: 1,
+        businessId,
+        tenantId,
+        occurredAt: new Date(),
+        // Plain object into the Json column (NOT JSON.stringify). Keys match the handler: soId +
+        // line id (see lib/outbox/handlers.ts SalesOrderConfirmed -> reserve).
+        payload: {
+          soId: order.id,
+          lines: order.lines.map(l => ({ variantId: l.variantId, quantity: l.quantity, id: l.id }))
+        },
+        status: "PENDING"
+      }
+    });
   });
 
-  // Drain to completion so the two-hop chain (SalesOrderConfirmed → InventoryReservationRequested
-  // → reservation) actually reserves stock synchronously on confirm.
+  // Drain OUTSIDE the transaction — outbox processing is independently idempotent (the two-hop chain
+  // SalesOrderConfirmed -> InventoryReservationRequested -> reservation).
   await drainOutbox();
 
   await logAudit({ action: "confirm", resource: "sales_order", resourceId: order.id, metadata: { code: order.code } });
