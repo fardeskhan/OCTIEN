@@ -46,25 +46,30 @@ export async function createPurchaseRequisition(formData: FormData) {
   redirect(`/operations/procurement/requisitions/${pr.id}`);
 }
 
+// Legal PR transitions (from the requisitions UI): submit a draft, then approve or reject a
+// submitted PR. APPROVED and REJECTED are terminal.
+const LEGAL_PR_TRANSITIONS: Record<string, PRStatus[]> = {
+  DRAFT: ["SUBMITTED"],
+  SUBMITTED: ["APPROVED", "REJECTED"],
+};
+
 export async function updateRequisitionStatus(id: string, status: PRStatus) {
   const { currentBusinessId, session } = await requireBusinessContext();
-  
-  if (status === "APPROVED" || status === "REJECTED") {
-    // Only approvers can approve/reject
-    await requirePermission("purchase_requisition.approve");
-  } else {
-    await requirePermission("purchase_requisition.update");
-  }
 
-  const pr = await db.purchaseRequisition.findUnique({ where: { id, businessId: currentBusinessId } });
-  if (!pr) throw new Error("PR not found");
+  // Authorize first (approve/reject need the approver permission).
+  await requirePermission(status === "APPROVED" || status === "REJECTED" ? "purchase_requisition.approve" : "purchase_requisition.update");
 
-  await db.purchaseRequisition.update({
-    where: { id },
-    data: {
-      status,
-      updatedBy: session.user.id,
+  // Ownership + transition validation + update in one transaction (prevents stale/concurrent jumps).
+  await db.$transaction(async (tx) => {
+    const pr = await tx.purchaseRequisition.findFirst({ where: { id, businessId: currentBusinessId } });
+    if (!pr) throw new Error("PR not found");
+
+    const allowed = LEGAL_PR_TRANSITIONS[pr.status] ?? [];
+    if (!allowed.includes(status)) {
+      throw new Error(`Illegal requisition transition: ${pr.status} -> ${status}`);
     }
+
+    await tx.purchaseRequisition.update({ where: { id }, data: { status, updatedBy: session.user.id } });
   });
 
   revalidatePath(`/operations/procurement/requisitions/${id}`);
