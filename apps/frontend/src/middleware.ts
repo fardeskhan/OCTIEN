@@ -29,8 +29,10 @@ export const config = {
      * - favicon.ico (favicon file)
      * - manifest.webmanifest (PWA manifest — must be publicly fetchable)
      * - api/dev (dev-only diagnostics / runtime verification; guarded server-side, blocked in prod)
+     * - api/internal (system/cron endpoints; self-guarded by CRON_SECRET, not a user session — the
+     *   cookie-redirect below would otherwise bounce a legitimate secret-bearing cron to /login)
      * - public files
      */
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|api/dev|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|api/dev|api/internal|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
