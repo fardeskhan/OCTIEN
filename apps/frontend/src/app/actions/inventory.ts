@@ -202,6 +202,40 @@ export async function processGoodsReceiptRequest(grId: string, acceptedLines: { 
 
     if (!gr || gr.status !== "REQUESTED") throw new Error("Invalid Goods Receipt Request");
 
+    // ---- PROC-3: validate receivability + quantities BEFORE any write (all inside this tx) ----
+    const po = gr.purchaseOrder;
+    if (!po || po.businessId !== currentBusinessId) throw new Error("Purchase order not found for this business");
+    // No controlled over-receipt tolerance exists in the domain; a PO is receivable only while it is
+    // approved/ordered/partially received. DRAFT, RECEIVED (fully), CLOSED and CANCELLED are rejected.
+    const RECEIVABLE_PO_STATUS = ["APPROVED", "ORDERED", "PARTIALLY_RECEIVED"];
+    if (!RECEIVABLE_PO_STATUS.includes(po.status)) throw new Error(`Cannot receive against a ${po.status} purchase order`);
+
+    // Lock the PO's lines for the duration of this transaction so two concurrent receipts on the same
+    // PO cannot each read the same remaining quantity and jointly over-receive.
+    await tx.$queryRawUnsafe('SELECT 1 FROM "purchase_order_lines" WHERE "poId" = $1 FOR UPDATE', po.id);
+    const poLines = await tx.purchaseOrderLine.findMany({ where: { poId: po.id } });
+    const poLineById = new Map<string, any>(poLines.map((l: any) => [l.id, l]));
+
+    // Per-line quantity validation + accumulate accepted per PO line (multi-line-per-variant safe).
+    const acceptedByPoLine = new Map<string, number>();
+    for (const inputLine of acceptedLines) {
+      const line = gr.lines.find((l: any) => l.id === inputLine.id);
+      if (!line) throw new Error(`Goods receipt line ${inputLine.id} not found on this request`);
+      const acc = inputLine.acceptedQty, rej = inputLine.rejectedQty;
+      if (!Number.isFinite(acc) || !Number.isFinite(rej)) throw new Error("Quantities must be numbers");
+      if (acc < 0 || rej < 0) throw new Error("Accepted/rejected quantities cannot be negative");
+      if (acc + rej > line.requestedQty + 1e-9) throw new Error(`Accepted + rejected (${acc + rej}) exceeds requested quantity (${line.requestedQty})`);
+      if (line.poLineId) {
+        if (!poLineById.has(line.poLineId)) throw new Error("Goods receipt line references a purchase-order line that no longer exists");
+        acceptedByPoLine.set(line.poLineId, (acceptedByPoLine.get(line.poLineId) ?? 0) + acc);
+      }
+    }
+    for (const [poLineId, acc] of acceptedByPoLine) {
+      const pl = poLineById.get(poLineId);
+      const remaining = pl.quantity - pl.receivedQty;
+      if (acc > remaining + 1e-9) throw new Error(`Accepted ${acc} exceeds remaining PO quantity ${remaining} (over-receipt is not permitted)`);
+    }
+
     const timestamp = Date.now();
     const correlationId = `GR-${timestamp}`;
 
