@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { DepreciationEngine } from "./depreciation-engine";
+import { FinancialPostingService } from "./posting-engine";
 
 export class AssetDisposalService {
   /**
@@ -41,98 +42,51 @@ export class AssetDisposalService {
 
     const gainLossAmount = proceeds - nbv;
 
-    // 2. Lookup necessary Ledger Accounts
+    // 2. Build journal lines by account CODE. postEntry resolves + validates each code (existence,
+    //    allowPosting) inside the posting transaction — no separate pre-lookup needed. 4300 gain /
+    //    5400 loss per ADR.
     const category = asset.category;
-    
-    // We need the internal ID for journal lines
-    const assetAccount = await db.ledgerAccount.findUniqueOrThrow({
-      where: { businessId_accountCode: { businessId: asset.businessId, accountCode: category.assetAccountId } }
-    });
-    const accDepAccount = await db.ledgerAccount.findUniqueOrThrow({
-      where: { businessId_accountCode: { businessId: asset.businessId, accountCode: category.accumulatedDepreciationAccountId } }
-    });
-    
-    let proceedsAccount = null;
-    if (proceeds > 0 && params.proceedsAccountCode) {
-      proceedsAccount = await db.ledgerAccount.findUniqueOrThrow({
-        where: { businessId_accountCode: { businessId: asset.businessId, accountCode: params.proceedsAccountCode } }
-      });
-    }
+    const lines: { accountCode: string; debit?: number; credit?: number }[] = [];
 
-    // We hardcode 4300 for Gain and 5400 for Loss as per user ADR requirement, but look up internal ID
-    const gainAccount = await db.ledgerAccount.findUniqueOrThrow({
-      where: { businessId_accountCode: { businessId: asset.businessId, accountCode: "4300" } }
-    });
-    const lossAccount = await db.ledgerAccount.findUniqueOrThrow({
-      where: { businessId_accountCode: { businessId: asset.businessId, accountCode: "5400" } }
-    });
-
-    // 3. Build Journal Lines
-    const lines: any[] = [];
-
-    // Reverse Accumulated Depreciation (Debit)
     if (accumulatedDepreciation > 0) {
-      lines.push({
-        businessId: asset.businessId,
-        accountId: accDepAccount.id,
-        debit: accumulatedDepreciation,
-        credit: 0
-      });
+      // Reverse Accumulated Depreciation (Debit)
+      lines.push({ accountCode: category.accumulatedDepreciationAccountId, debit: accumulatedDepreciation });
     }
-
-    // Derecognize Asset Cost (Credit)
     if (cost > 0) {
-      lines.push({
-        businessId: asset.businessId,
-        accountId: assetAccount.id,
-        debit: 0,
-        credit: cost
-      });
+      // Derecognize Asset Cost (Credit)
+      lines.push({ accountCode: category.assetAccountId, credit: cost });
     }
-
-    // Record Proceeds (Debit)
-    if (proceeds > 0 && proceedsAccount) {
-      lines.push({
-        businessId: asset.businessId,
-        accountId: proceedsAccount.id,
-        debit: proceeds,
-        credit: 0
-      });
+    if (proceeds > 0 && params.proceedsAccountCode) {
+      // Record Proceeds (Debit)
+      lines.push({ accountCode: params.proceedsAccountCode, debit: proceeds });
     }
-
-    // Record Gain (Credit) or Loss (Debit)
     if (gainLossAmount > 0) {
       // Gain is a credit
-      lines.push({
-        businessId: asset.businessId,
-        accountId: gainAccount.id,
-        debit: 0,
-        credit: gainLossAmount
-      });
+      lines.push({ accountCode: "4300", credit: gainLossAmount });
     } else if (gainLossAmount < 0) {
       // Loss is a debit
-      lines.push({
-        businessId: asset.businessId,
-        accountId: lossAccount.id,
-        debit: Math.abs(gainLossAmount),
-        credit: 0
-      });
+      lines.push({ accountCode: "5400", debit: Math.abs(gainLossAmount) });
     }
 
-    // 4. Run Transaction
+    // tenantId for the posting audit event (derived from the asset's business).
+    const business = await db.business.findUnique({ where: { id: asset.businessId }, select: { tenantId: true } });
+    const tenantId = business?.tenantId || "SYSTEM";
+
+    // 3. Run Transaction
     const result = await db.$transaction(async (tx) => {
-      // Create Journal Entry
-      const je = await tx.journalEntry.create({
-        data: {
-          businessId: asset.businessId,
-          date: params.disposalDate,
-          description: `Disposal of Fixed Asset: ${asset.assetCode} (${params.disposalType})`,
-          sourceType: "FIXED_ASSET_DISPOSAL",
-          sourceId: asset.id,
-          lines: {
-            create: lines
-          }
-        }
+      // Canonical posting: enforces an OPEN accounting period for the disposal date, balanced
+      // debits/credits, account existence + allowPosting, and the JOURNAL_POSTED audit event — all
+      // inside this transaction. Replaces the previous direct journalEntry.create bypass, which did
+      // NO period check at all.
+      const je = await FinancialPostingService.postEntry({
+        tx,
+        businessId: asset.businessId,
+        tenantId,
+        date: params.disposalDate,
+        description: `Disposal of Fixed Asset: ${asset.assetCode} (${params.disposalType})`,
+        sourceType: "FIXED_ASSET_DISPOSAL",
+        sourceId: asset.id,
+        lines,
       });
 
       // Create Disposal Record
@@ -174,10 +128,10 @@ export class AssetDisposalService {
           aggregateId: asset.id,
           aggregateVersion: 2,
           businessId: asset.businessId,
-          tenantId: "default",
+          tenantId,
           occurredAt: new Date(),
-          payload: JSON.stringify({ 
-            disposalType: params.disposalType, 
+          payload: JSON.stringify({
+            disposalType: params.disposalType,
             proceeds: proceeds,
             gainLoss: gainLossAmount,
             journalEntryId: je.id 
