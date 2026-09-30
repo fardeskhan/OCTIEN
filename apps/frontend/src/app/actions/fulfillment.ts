@@ -72,6 +72,19 @@ export async function createShipment(formData: FormData) {
   redirect(`/sales/deliveries/${shipment.id}`);
 }
 
+// Legal shipment transitions (from the delivery UI + the logistics LOADED state). Targets are limited
+// to what this action can set; DELIVERED/CANCELLED are terminal. This is what stops an arbitrary jump
+// such as DRAFT -> DISPATCHED (which would stock-out/invoice/COGS without pick/pack).
+const LEGAL_SHIPMENT_TRANSITIONS: Record<string, string[]> = {
+  DRAFT: ["PICKING", "CANCELLED"],
+  PICKING: ["PACKING", "CANCELLED"],
+  PACKING: ["READY_TO_DISPATCH", "DISPATCHED", "CANCELLED"],
+  READY_TO_DISPATCH: ["DISPATCHED", "CANCELLED"],
+  LOADED: ["DISPATCHED", "CANCELLED"],
+  DISPATCHED: ["DELIVERED"],
+  PARTIALLY_DELIVERED: ["DELIVERED"],
+};
+
 export async function updateShipmentStatus(
   id: string,
   status: "PICKING" | "PACKING" | "READY_TO_DISPATCH" | "DISPATCHED" | "DELIVERED" | "CANCELLED",
@@ -87,12 +100,28 @@ export async function updateShipmentStatus(
 
   if (!shipment) throw new Error("Shipment not found");
 
+  // SALES-6: validate the transition server-side so arbitrary status jumps cannot bypass the
+  // pick/pack/dispatch/deliver lifecycle even after createShipment eligibility (SALES-8) was added.
+  const allowed = LEGAL_SHIPMENT_TRANSITIONS[shipment.status] ?? [];
+  if (!allowed.includes(status)) {
+    throw new Error(`Illegal shipment transition: ${shipment.status} -> ${status}`);
+  }
+
   await db.$transaction(async (tx) => {
-    // Update lines if provided (e.g., when moving from PICKING -> PACKING, we save pickedQty)
+    // Concurrency-safe transition claim: advance only if still in the validated source status, so two
+    // concurrent updates (e.g. two dispatches) cannot both proceed.
+    const res = await tx.shipment.updateMany({
+      where: { id, businessId: currentBusinessId, status: shipment.status },
+      data: { status, updatedBy: session.user.id },
+    });
+    if (res.count === 0) throw new Error("Shipment status changed concurrently");
+
+    // Update lines if provided — scoped to THIS shipment so a client-supplied line id cannot touch
+    // another shipment's line.
     if (linesData && linesData.length > 0) {
       for (const ld of linesData) {
-        await tx.shipmentLine.update({
-          where: { id: ld.id },
+        await tx.shipmentLine.updateMany({
+          where: { id: ld.id, shipmentId: id },
           data: {
             pickedQty: ld.pickedQty !== undefined ? ld.pickedQty : undefined,
             packedQty: ld.packedQty !== undefined ? ld.packedQty : undefined,
@@ -101,14 +130,6 @@ export async function updateShipmentStatus(
         });
       }
     }
-
-    await tx.shipment.update({
-      where: { id },
-      data: {
-        status,
-        updatedBy: session.user.id,
-      }
-    });
 
     if (status === "DISPATCHED") {
       // Create Delivery Note
