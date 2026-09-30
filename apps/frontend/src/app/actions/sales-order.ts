@@ -196,14 +196,26 @@ export async function cancelSalesOrder(id: string) {
   if (order.status === "CANCELLED") throw new Error("Order is already cancelled");
 
   const reservedLines = order.lines.filter((l) => l.reservedQty > 0);
-  if (reservedLines.length > 0) {
-    const warehouse = await db.warehouse.findFirst({ where: { businessId, isDefault: true } });
-    if (warehouse) {
+  const warehouse = reservedLines.length > 0 ? await db.warehouse.findFirst({ where: { businessId, isDefault: true } }) : null;
+
+  // Atomic: claim the cancellation AND release every reservation (projection reserved-/available+,
+  // line reservedQty=0, reservation records deleted) as ONE unit. A mid-release failure rolls the
+  // whole thing back — no half-released, half-cancelled order. The conditional cancel is done first
+  // so a concurrent fulfill/deliver that already advanced the order aborts before anything is
+  // released (count 0 -> throw -> rollback).
+  await db.$transaction(async (tx) => {
+    const cancelRes = await tx.salesOrder.updateMany({
+      where: { id, businessId, status: { in: ["DRAFT", "APPROVED", "CONFIRMED", "PARTIALLY_FULFILLED"] } },
+      data: { status: "CANCELLED" },
+    });
+    if (cancelRes.count === 0) throw new Error("Order can no longer be cancelled");
+
+    if (reservedLines.length > 0 && warehouse) {
       for (const line of reservedLines) {
         const key = { businessId_variantId_warehouseId: { businessId, variantId: line.variantId, warehouseId: warehouse.id } };
-        const proj = await db.inventoryVariantProjection.findUnique({ where: key });
+        const proj = await tx.inventoryVariantProjection.findUnique({ where: key });
         if (proj) {
-          await db.inventoryVariantProjection.update({
+          await tx.inventoryVariantProjection.update({
             where: key,
             data: {
               reservedQuantity: Math.max(0, proj.reservedQuantity - line.reservedQty),
@@ -211,19 +223,12 @@ export async function cancelSalesOrder(id: string) {
             },
           });
         }
-        await db.salesOrderLine.update({ where: { id: line.id }, data: { reservedQty: 0 } });
+        await tx.salesOrderLine.update({ where: { id: line.id }, data: { reservedQty: 0 } });
       }
+      await tx.reservationRecord.deleteMany({ where: { businessId, referenceId: order.id } });
     }
-    await db.reservationRecord.deleteMany({ where: { businessId, referenceId: order.id } });
-  }
-
-  // Atomic conditional transition: only cancel while still in a non-terminal state (guards a
-  // concurrent fulfill/deliver that may have landed after the checks above).
-  const cancelRes = await db.salesOrder.updateMany({
-    where: { id, businessId, status: { in: ["DRAFT", "APPROVED", "CONFIRMED", "PARTIALLY_FULFILLED"] } },
-    data: { status: "CANCELLED" },
   });
-  if (cancelRes.count === 0) throw new Error("Order can no longer be cancelled");
+
   await logAudit({
     action: "cancel",
     resource: "sales_order",
