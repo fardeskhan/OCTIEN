@@ -56,6 +56,17 @@ export async function createQuotation(data: {
   return quote;
 }
 
+// Legal quotation transitions (derived from the quotation UI). ACCEPTED is terminal for status
+// changes — converting to an order creates a separate sales order and does NOT change the quote.
+// REJECTED/EXPIRED can be re-opened to DRAFT. EXPIRED is reachable from an active quote (DRAFT/SENT).
+const LEGAL_QUOTATION_TRANSITIONS: Record<string, string[]> = {
+  DRAFT: ["SENT", "ACCEPTED", "REJECTED", "EXPIRED"],
+  SENT: ["ACCEPTED", "REJECTED", "EXPIRED"],
+  ACCEPTED: [],
+  REJECTED: ["DRAFT"],
+  EXPIRED: ["DRAFT"],
+};
+
 export async function updateQuotationStatus(id: string, status: "DRAFT" | "SENT" | "ACCEPTED" | "REJECTED" | "EXPIRED") {
   const { currentBusinessId: businessId } = await requireBusinessContext();
   await requirePermission("sales.write");
@@ -63,14 +74,22 @@ export async function updateQuotationStatus(id: string, status: "DRAFT" | "SENT"
   const existing = await db.quotation.findFirst({ where: { id, businessId } });
   if (!existing) throw new Error("Quotation not found");
 
-  const quote = await db.quotation.update({
-    where: { id },
+  const allowed = LEGAL_QUOTATION_TRANSITIONS[existing.status] ?? [];
+  if (!allowed.includes(status)) {
+    throw new Error(`Illegal quotation transition: ${existing.status} -> ${status}`);
+  }
+
+  // Concurrency-safe conditional transition: advances only if still in the expected source status,
+  // so two concurrent transitions cannot both succeed.
+  const res = await db.quotation.updateMany({
+    where: { id, businessId, status: existing.status },
     data: { status, ...(status === "EXPIRED" ? { expiredAt: new Date() } : {}) },
   });
+  if (res.count === 0) throw new Error("Quotation status changed concurrently");
 
-  await logAudit({ action: "status", resource: "quotation", resourceId: quote.id, metadata: { code: quote.code, from: existing.status, to: status } });
+  await logAudit({ action: "status", resource: "quotation", resourceId: id, metadata: { code: existing.code, from: existing.status, to: status } });
   revalidatePath("/sales/quotations");
-  return quote;
+  return { ...existing, status };
 }
 
 export async function getQuotations() {
