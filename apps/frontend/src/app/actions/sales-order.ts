@@ -57,15 +57,16 @@ export async function approveSalesOrder(id: string) {
 
   const existing = await db.salesOrder.findFirst({ where: { id, businessId } });
   if (!existing) throw new Error("Order not found");
+  if (existing.status !== "DRAFT") throw new Error("Only a DRAFT order can be approved");
 
-  const order = await db.salesOrder.update({
-    where: { id },
-    data: { status: "APPROVED" }
-  });
-  await logAudit({ action: "approve", resource: "sales_order", resourceId: order.id, metadata: { code: order.code } });
+  // Atomic conditional transition (concurrency-safe): succeeds only if the order is still DRAFT.
+  const res = await db.salesOrder.updateMany({ where: { id, businessId, status: "DRAFT" }, data: { status: "APPROVED" } });
+  if (res.count === 0) throw new Error("Order is no longer in DRAFT state");
+
+  await logAudit({ action: "approve", resource: "sales_order", resourceId: existing.id, metadata: { code: existing.code } });
   revalidatePath("/sales/orders");
   revalidatePath(`/sales/orders/${id}`);
-  return order;
+  return { ...existing, status: "APPROVED" };
 }
 
 export async function confirmSalesOrder(id: string) {
@@ -78,11 +79,12 @@ export async function confirmSalesOrder(id: string) {
   });
 
   if (!order) throw new Error("Order not found");
+  if (order.status !== "APPROVED") throw new Error("Only an APPROVED order can be confirmed");
 
-  await db.salesOrder.update({
-    where: { id },
-    data: { status: "CONFIRMED" }
-  });
+  // Atomic conditional transition (concurrency-safe): succeeds only if still APPROVED, so two
+  // concurrent confirms cannot both proceed to emit a reservation event.
+  const res = await db.salesOrder.updateMany({ where: { id, businessId, status: "APPROVED" }, data: { status: "CONFIRMED" } });
+  if (res.count === 0) throw new Error("Order is no longer in APPROVED state");
 
   // Outbox event to trigger inventory reservation
   const tenantMembership = await db.membership.findFirst({
@@ -136,11 +138,13 @@ export async function fulfillSalesOrder(id: string) {
   });
 
   if (!order) throw new Error("Order not found");
+  if (order.status !== "CONFIRMED" && order.status !== "PARTIALLY_FULFILLED") {
+    throw new Error("Only a confirmed order can be fulfilled");
+  }
 
-  await db.salesOrder.update({
-    where: { id },
-    data: { status: "FULFILLED" }
-  });
+  // Atomic conditional transition (concurrency-safe).
+  const res = await db.salesOrder.updateMany({ where: { id, businessId, status: { in: ["CONFIRMED", "PARTIALLY_FULFILLED"] } }, data: { status: "FULFILLED" } });
+  if (res.count === 0) throw new Error("Order is not in a fulfillable state");
 
   // Outbox event for fulfillment
   const tenantMembership = await db.membership.findFirst({
@@ -212,7 +216,13 @@ export async function cancelSalesOrder(id: string) {
     await db.reservationRecord.deleteMany({ where: { businessId, referenceId: order.id } });
   }
 
-  await db.salesOrder.update({ where: { id }, data: { status: "CANCELLED" } });
+  // Atomic conditional transition: only cancel while still in a non-terminal state (guards a
+  // concurrent fulfill/deliver that may have landed after the checks above).
+  const cancelRes = await db.salesOrder.updateMany({
+    where: { id, businessId, status: { in: ["DRAFT", "APPROVED", "CONFIRMED", "PARTIALLY_FULFILLED"] } },
+    data: { status: "CANCELLED" },
+  });
+  if (cancelRes.count === 0) throw new Error("Order can no longer be cancelled");
   await logAudit({
     action: "cancel",
     resource: "sales_order",

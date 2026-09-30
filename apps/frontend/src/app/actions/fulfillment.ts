@@ -20,6 +20,12 @@ export async function createShipment(formData: FormData) {
   });
 
   if (!so) throw new Error("Sales Order not found");
+  // SALES-8: a shipment may only be created for a confirmed (stock-reserved) order. This does not
+  // change WHERE stock leaves inventory — that still happens at DISPATCH (ShipmentDispatched ->
+  // InventoryStockOutRequested) — it only gates shipment CREATION on order eligibility.
+  if (so.status !== "CONFIRMED" && so.status !== "PARTIALLY_FULFILLED") {
+    throw new Error("Sales order must be confirmed before a shipment can be created");
+  }
 
   const count = await db.shipment.count({ where: { businessId: currentBusinessId } });
   const code = `SHP-${String(count + 1).padStart(5, "0")}`;
